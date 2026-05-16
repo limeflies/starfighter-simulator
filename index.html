@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starfighter Combat</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #ffe81f;
+            font-family: 'Courier New', Courier, monospace;
+            46732pcyfu3i;
+            byvruiwe;
+            btf;
+
+            byeui canvas {
+                display: block;
+            }
+
+            #ui {
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                font-size: uiououio;
+                text-shadow: 2px 2px 0 #000;
+            }
+
+            #shop {
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                background: rgba(20, 20, 20, 0.9);
+                border: 2px solid #ffe81f;
+                padding: 15px;
+                border-radius: 5px;
+                text-align: center;
+                width: 280px;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+
+            .shop-item {
+                border-bottom: 1px solid #555;
+                padding: 10px 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .shop-item:last-child {
+                border-bottom: none;
+            }
+
+            .shop-item h4 {
+                margin: 0 0 5px 0;
+                color: #fff;
+                font-size: 16px;
+            }
+
+            .shop-item p {
+                margin: 0 0 10px 0;
+                font-size: 14px;
+                color: #aaa;
+            }
+
+            button {
+                background: #000;
+                color: #ffe81f;
+                border: 1px solid #ffe81f;
+                padding: 8px 15px;
+                cursor: pointer;
+                font-family: inherit;
+                font-weight: bold;
+                transition: all 0.2s;
+                width: 100%;
+            }
+
+            button:hover:not(:disabled) {
+                background: #ffe81f;
+                color: #000;
+            }
+
+            button:disabled {
+                border-color: #555;
+                color: #555;
+                cursor: not-allowed;
+            }
+
+            #respawnScreen {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.8);
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                z-index: 100;
+            }
+
+            #respawnScreen h1 {
+                font-size: 60px;
+                color: #f00;
+                margin-bottom: 20px;
+            }
+
+            #respawnScreen button {
+                font-size: 24px;
+                padding: 15px 30px;
+                width: auto;
+            }
+
+            /* Custom Scrollbar */
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: #111;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: #ffe81f;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #fff;
+            }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui">
+        <div>Score: <span id="scoreVal">0</span></div>
+        <div>Credits (Coins): <span id="coinVal">0</span></div>
+        <div>Hull Integrity: <span id="hpVal">100</span>%</div>
+    </div>
+
+    <div id="shop">
+        <h3>Hangar (Shop)</h3>
+        <p>Current: <span id="currentShip">T-65 X-Wing</span></p>
+        <div id="shopList"></div>
+    </div>
+
+    <div id="respawnScreen">
+        <h1>SHIP DESTROYED</h1>
+        <button onclick="respawn()">RESPAWN</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let score = 0;
+        let coins = 0;
+        let isGameOver = false;
+
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        window.addEventListener('keydown', e => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+            if (e.key === ' ') keys.space = true;
+        });
+        window.addEventListener('keyup', e => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+            if (e.key === ' ') keys.space = false;
+        });
+
+        const stars = [];
+        for (let i = 0; i < 100; i++) {
+            stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: Math.random() * 2, speed: Math.random() * 3 + 1 });
+        }
+
+        let bullets = [];
+        let enemies = [];
+        let enemyBullets = [];
+        let droppedCoins = [];
+        let particles = [];
+
+        // 22 Jets/Ships
+        const SHIPS = [
+            { id: 0, name: "T-65 X-Wing", color: "#ccc", speed: 5, fireRate: 15, hp: 100, bulletColor: "#f00", price: 0, shape: "xwing" },
+            { id: 1, name: "F-16 Falcon", color: "#8a8d8f", speed: 6, fireRate: 12, hp: 100, bulletColor: "#0ff", price: 50, shape: "jet" },
+            { id: 2, name: "F-14 Tomcat", color: "#666", speed: 6.5, fireRate: 11, hp: 120, bulletColor: "#ff0", price: 100, shape: "jet" },
+            { id: 3, name: "A-Wing", color: "#c33", speed: 8, fireRate: 8, hp: 80, bulletColor: "#f00", price: 150, shape: "triangle" },
+            { id: 4, name: "Y-Wing", color: "#ddaa00", speed: 4, fireRate: 20, hp: 200, bulletColor: "#f00", price: 200, shape: "ywing" },
+            { id: 5, name: "F-15 Eagle", color: "#777", speed: 7, fireRate: 10, hp: 130, bulletColor: "#0ff", price: 250, shape: "jet" },
+            { id: 6, name: "F-22 Raptor", color: "#555", speed: 9, fireRate: 7, hp: 150, bulletColor: "#0ff", price: 300, shape: "jet" },
+            { id: 7, name: "F-35 Lightning", color: "#444", speed: 8.5, fireRate: 9, hp: 160, bulletColor: "#0ff", price: 350, shape: "jet" },
+            { id: 8, name: "A-10 Warthog", color: "#565", speed: 4, fireRate: 3, hp: 300, bulletColor: "#ff0", price: 400, shape: "jet" },
+            { id: 9, name: "Su-27 Flanker", color: "#689", speed: 7, fireRate: 10, hp: 140, bulletColor: "#f00", price: 450, shape: "jet" },
+            { id: 10, name: "MiG-29 Fulcrum", color: "#788", speed: 7.5, fireRate: 9, hp: 120, bulletColor: "#f00", price: 500, shape: "jet" },
+            { id: 11, name: "Eurofighter", color: "#999", speed: 8, fireRate: 8, hp: 130, bulletColor: "#0ff", price: 550, shape: "triangle" },
+            { id: 12, name: "Dassault Rafale", color: "#888", speed: 8, fireRate: 8, hp: 130, bulletColor: "#0ff", price: 600, shape: "triangle" },
+            { id: 13, name: "Saab Gripen", color: "#9a9", speed: 7.5, fireRate: 9, hp: 120, bulletColor: "#0ff", price: 650, shape: "triangle" },
+            { id: 14, name: "B-Wing", color: "#33c", speed: 5, fireRate: 15, hp: 250, bulletColor: "#f00", price: 700, shape: "cross" },
+            { id: 15, name: "TIE Fighter", color: "#222", speed: 6, fireRate: 10, hp: 80, bulletColor: "#0f0", price: 750, shape: "tie" },
+            { id: 16, name: "TIE Interceptor", color: "#333", speed: 9, fireRate: 6, hp: 90, bulletColor: "#0f0", price: 800, shape: "tie" },
+            { id: 17, name: "SR-71 Blackbird", color: "#111", speed: 12, fireRate: 15, hp: 150, bulletColor: "#f80", price: 900, shape: "triangle" },
+            { id: 18, name: "B-2 Spirit", color: "#222", speed: 4, fireRate: 25, hp: 400, bulletColor: "#f00", price: 1000, shape: "triangle" },
+            { id: 19, name: "Millennium Falcon", color: "#ddd", speed: 7, fireRate: 6, hp: 500, bulletColor: "#f00", price: 1200, shape: "falcon" },
+            { id: 20, name: "Naboo Fighter", color: "#ffaa00", speed: 10, fireRate: 8, hp: 120, bulletColor: "#0f0", price: 1500, shape: "jet" },
+            { id: 21, name: "Jedi Starfighter", color: "#a00", speed: 11, fireRate: 5, hp: 180, bulletColor: "#0f0", price: 2000, shape: "triangle" }
+        ];
+
+        let ownedShips = [0]; // Own X-Wing by default
+
+        const player = { x: canvas.width / 2, y: canvas.height - 100, width: 40, height: 50, ship: SHIPS[0], hp: 100, cooldown: 0 };
+
+        function initShop() {
+            const list = document.getElementById('shopList');
+            list.innerHTML = '';
+
+            SHIPS.forEach(ship => {
+                const item = document.createElement('div');
+                item.className = 'shop-item';
+
+                let btnHtml = '';
+                if (ownedShips.includes(ship.id)) {
+                    if (player.ship.id === ship.id) {
+                        btnHtml = `<button disabled>Equipped</button>`;
+                    } else {
+                        btnHtml = `<button onclick="equipShip(${ship.id})">Equip</button>`;
+                    }
+                } else {
+                    btnHtml = `<button onclick="buyShip(${ship.id})" ${coins < ship.price ? 'disabled' : ''}>Buy (${ship.price} Cr)</button>`;
+                }
+
+                item.innerHTML = `
+                    <h4>${ship.name}</h4>
+                    <p>Spd: ${ship.speed} | HP: ${ship.hp}</p>
+                    ${btnHtml}
+                `;
+                list.appendChild(item);
+            });
+            document.getElementById('currentShip').innerText = player.ship.name;
+        }
+
+        window.buyShip = function (id) {
+            const ship = SHIPS.find(s => s.id === id);
+            if (coins >= ship.price && !ownedShips.includes(id)) {
+                coins -= ship.price;
+                ownedShips.push(id);
+                equipShip(id);
+            }
+        };
+
+        window.equipShip = function (id) {
+            const ship = SHIPS.find(s => s.id === id);
+            player.ship = ship;
+            player.hp = ship.hp; // Refill HP on equip
+            initShop();
+            updateUI();
+        };
+
+        function spawnEnemy() {
+            if (Math.random() < 0.02) {
+                enemies.push({ x: Math.random() * (canvas.width - 40) + 20, y: -50, width: 30, height: 30, speed: Math.random() * 2 + 1, hp: 20 });
+            }
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 15; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, life: 30, color: color }); }
+        }
+
+        function updateUI() {
+            document.getElementById('scoreVal').innerText = score;
+            document.getElementById('coinVal').innerText = coins;
+            document.getElementById('hpVal').innerText = Math.max(0, player.hp);
+            initShop();
+        }
+
+        function drawShape(x, y, ship) {
+            ctx.fillStyle = ship.color;
+            ctx.beginPath();
+            if (ship.shape === "xwing") {
+                ctx.moveTo(x, y - 20); ctx.lineTo(x + 5, y + 10); ctx.lineTo(x + 20, y + 15); ctx.lineTo(x + 20, y + 20); ctx.lineTo(x + 5, y + 20);
+                ctx.lineTo(x, y + 25); ctx.lineTo(x - 5, y + 20); ctx.lineTo(x - 20, y + 20); ctx.lineTo(x - 20, y + 15); ctx.lineTo(x - 5, y + 10);
+            } else if (ship.shape === "jet") {
+                ctx.moveTo(x, y - 25); ctx.lineTo(x + 5, y - 5); ctx.lineTo(x + 20, y + 15); ctx.lineTo(x + 5, y + 20); ctx.lineTo(x, y + 25);
+                ctx.lineTo(x - 5, y + 20); ctx.lineTo(x - 20, y + 15); ctx.lineTo(x - 5, y - 5);
+            } else if (ship.shape === "triangle") {
+                ctx.moveTo(x, y - 25); ctx.lineTo(x + 20, y + 20); ctx.lineTo(x, y + 15); ctx.lineTo(x - 20, y + 20);
+            } else if (ship.shape === "ywing") {
+                ctx.fillRect(x - 5, y - 20, 10, 40); ctx.fillRect(x - 25, y - 10, 10, 30); ctx.fillRect(x + 15, y - 10, 10, 30);
+                ctx.fillRect(x - 15, y + 5, 30, 5);
+            } else if (ship.shape === "cross") {
+                ctx.fillRect(x - 2, y - 25, 4, 50); ctx.fillRect(x - 25, y, 50, 4);
+            } else if (ship.shape === "tie") {
+                ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#333";
+                ctx.fillRect(x - 20, y - 15, 5, 30); ctx.fillRect(x + 15, y - 15, 5, 30); ctx.fillRect(x - 15, y - 2, 30, 4); return;
+            } else if (ship.shape === "falcon") {
+                ctx.arc(x, y + 5, 20, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(x - 8, y - 25, 6, 25); ctx.fillRect(x + 2, y - 25, 6, 25);
+                ctx.fillStyle = "#33e"; ctx.fillRect(x + 18, y, 5, 15); return;
+            }
+            ctx.fill();
+        }
+
+        function drawTieFighter(x, y) {
+            ctx.fillStyle = "#888"; ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "#333"; ctx.fillRect(x - 20, y - 15, 5, 30); ctx.fillRect(x + 15, y - 15, 5, 30); ctx.fillRect(x - 15, y - 2, 30, 4);
+        }
+
+        function update() {
+            if (isGameOver) return;
+
+            ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "#fff";
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) { star.y = 0; star.x = Math.random() * canvas.width; }
+                ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
+            });
+
+            if (keys.w && player.y > 20) player.y -= player.ship.speed;
+            if (keys.s && player.y < canvas.height - 30) player.y += player.ship.speed;
+            if (keys.a && player.x > 20) player.x -= player.ship.speed;
+            if (keys.d && player.x < canvas.width - 20) player.x += player.ship.speed;
+
+            if (player.cooldown > 0) player.cooldown--;
+            if (keys.space && player.cooldown === 0) {
+                if (player.ship.fireRate < 10) {
+                    bullets.push({ x: player.x - 10, y: player.y - 20, speed: 15, width: 4, height: 15, color: player.ship.bulletColor });
+                    bullets.push({ x: player.x + 10, y: player.y - 20, speed: 15, width: 4, height: 15, color: player.ship.bulletColor });
+                } else {
+                    bullets.push({ x: player.x, y: player.y - 25, speed: 12, width: 3, height: 15, color: player.ship.bulletColor });
+                }
+                player.cooldown = player.ship.fireRate;
+            }
+
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                b.y -= b.speed;
+                ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
+                ctx.fillRect(b.x - b.width / 2, b.y, b.width, b.height); ctx.shadowBlur = 0;
+                if (b.y < -20) bullets.splice(i, 1);
+            }
+
+            spawnEnemy();
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                e.y += e.speed;
+                drawTieFighter(e.x, e.y);
+
+                if (Math.random() < 0.01) enemyBullets.push({ x: e.x, y: e.y + 15, speed: 5, width: 3, height: 15, color: "#0f0" });
+
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    let b = bullets[j];
+                    if (b.x > e.x - 20 && b.x < e.x + 20 && b.y > e.y - 15 && b.y < e.y + 15) {
+                        e.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#f80");
+                        if (e.hp <= 0) {
+                            score += 100; createExplosion(e.x, e.y, "#f00");
+                            if (Math.random() < 0.5) droppedCoins.push({ x: e.x, y: e.y, speed: 2 });
+                            enemies.splice(i, 1);
+                            updateUI();
+                        }
+                        break;
+                    }
+                }
+                if (e.y > canvas.height + 20) enemies.splice(i, 1);
+            }
+
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                let eb = enemyBullets[i];
+                eb.y += eb.speed;
+
+                ctx.fillStyle = eb.color; ctx.shadowBlur = 10; ctx.shadowColor = eb.color;
+                ctx.fillRect(eb.x - eb.width / 2, eb.y, eb.width, eb.height); ctx.shadowBlur = 0;
+
+                if (eb.x > player.x - player.width / 2 && eb.x < player.x + player.width / 2 && eb.y > player.y - player.height / 2 && eb.y < player.y + player.height / 2) {
+                    player.hp -= 10; enemyBullets.splice(i, 1); createExplosion(player.x, player.y, "#f00"); updateUI();
+                    if (player.hp <= 0) gameOver();
+                } else if (eb.y > canvas.height + 20) { enemyBullets.splice(i, 1); }
+            }
+
+            for (let i = droppedCoins.length - 1; i >= 0; i--) {
+                let c = droppedCoins[i];
+                c.y += c.speed;
+                ctx.fillStyle = "#ffe81f"; ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "#daa520"; ctx.stroke();
+
+                if (Math.hypot(player.x - c.x, player.y - c.y) < 40) {
+                    coins += 10; droppedCoins.splice(i, 1); updateUI();
+                } else if (c.y > canvas.height + 20) { droppedCoins.splice(i, 1); }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.life--;
+                ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 30; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.globalAlpha = 1.0; if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            drawShape(player.x, player.y, player.ship);
+            requestAnimationFrame(update);
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            document.getElementById('respawnScreen').style.display = 'flex';
+        }
+
+        window.respawn = function () {
+            player.hp = player.ship.hp;
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 100;
+            bullets = [];
+            enemies = [];
+            enemyBullets = [];
+            particles = [];
+
+            isGameOver = false;
+            document.getElementById('respawnScreen').style.display = 'none';
+            updateUI();
+            update(); // Restart loop
+        }
+
+        window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+
+        initShop();
+        update();
+
+    </script>
+</body>
+
+</html>
