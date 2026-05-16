@@ -12,11 +12,7 @@
             background-color: #000;
             color: #ffe81f;
             font-family: 'Courier New', Courier, monospace;
-            46732pcyfu3i;
-            byvruiwe;
-            btf;
-
-            byeui canvas {
+        canvas {
                 display: block;
             }
 
@@ -30,16 +26,17 @@
 
             #shop {
                 position: absolute;
-                top: 20px;
-                right: 20px;
+                top: 0;
+                right: 0;
                 background: rgba(20, 20, 20, 0.9);
-                border: 2px solid #ffe81f;
+                border-left: 2px solid #ffe81f;
                 padding: 15px;
-                border-radius: 5px;
                 text-align: center;
                 width: 280px;
-                max-height: 80vh;
+                height: 100vh;
+                max-height: 100vh;
                 overflow-y: auto;
+                box-sizing: border-box;
             }
 
             .shop-item {
@@ -131,15 +128,94 @@
             ::-webkit-scrollbar-thumb:hover {
                 background: #fff;
             }
+
+            #baseUI {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(10, 10, 20, 0.95);
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                padding-top: 50px;
+                z-index: 50;
+            }
+
+            .base-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 20px;
+                margin-top: 30px;
+            }
+
+            .base-card {
+                background: #111;
+                border: 2px solid #0ff;
+                padding: 20px;
+                text-align: center;
+                border-radius: 8px;
+            }
+
+            #controls {
+                position: absolute;
+                bottom: 20px;
+                left: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                z-index: 10;
+            }
+
+            #bossUI {
+                position: absolute;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 400px;
+                text-align: center;
+                display: none;
+            }
+
+            #bossBar {
+                width: 100%;
+                height: 20px;
+                background: #333;
+                border: 2px solid #f00;
+                margin-top: 5px;
+            }
+
+            #bossFill {
+                width: 100%;
+                height: 100%;
+                background: #f00;
+                transition: width 0.2s;
+            }
+
+            #warning {
+                position: absolute;
+                top: 30%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 60px;
+                color: #f00;
+                display: none;
+                z-index: 100;
+                text-shadow: 0 0 10px #f00;
+            }
     </style>
 </head>
 
 <body>
 
     <div id="ui">
+        <div>Level: <span id="levelVal">1</span> | Next Boss: <span id="timerVal">05:00</span></div>
         <div>Score: <span id="scoreVal">0</span></div>
-        <div>Credits (Coins): <span id="coinVal">0</span></div>
+        <div>Kills: <span id="killVal">0</span></div>
+        <div>Credits: <span id="coinVal">0</span> | Gems: <span id="gemVal">0</span></div>
         <div>Hull Integrity: <span id="hpVal">100</span>%</div>
+        <button onclick="toggleBase()" style="margin-top:10px; border-color:#0ff; color:#0ff;">UPGRADES</button>
     </div>
 
     <div id="shop">
@@ -153,6 +229,46 @@
         <button onclick="respawn()">RESPAWN</button>
     </div>
 
+    <div id="controls">
+        <button onclick="restartGame()">RESTART</button>
+        <button onclick="togglePause()" id="pauseBtn">PAUSE</button>
+    </div>
+
+    <div id="bossUI">
+        <h2 style="color:#f00; margin:0;">BOSS ACTIVE</h2>
+        <div id="bossBar"><div id="bossFill"></div></div>
+    </div>
+
+    <div id="warning">WARNING: BOSS APPROACHING</div>
+
+    <div id="baseUI">
+        <h1 style="color:#0ff;">BASE COMMAND</h1>
+        <h2>Gems Available: <span id="baseGemVal">0</span></h2>
+        <div class="base-grid">
+            <div class="base-card">
+                <h3>Hull Armor</h3>
+                <p>+50 Max HP to Player and Wingmen</p>
+                <button onclick="buyUpgrade('hp')" id="btn-upg-hp">Buy (30 Gems)</button>
+            </div>
+            <div class="base-card">
+                <h3>Overcharge Weapons</h3>
+                <p>+2 Fire Rate (Lower is faster)</p>
+                <button onclick="buyUpgrade('fireRate')" id="btn-upg-fr">Buy (60 Gems)</button>
+            </div>
+            <div class="base-card">
+                <h3>Thruster Module</h3>
+                <p>+1 Movement Speed</p>
+                <button onclick="buyUpgrade('speed')" id="btn-upg-spd">Buy (45 Gems)</button>
+            </div>
+            <div class="base-card">
+                <h3>Resource Scanner</h3>
+                <p>Double coin drop chance</p>
+                <button onclick="buyUpgrade('coinRate')" id="btn-upg-cr">Buy (90 Gems)</button>
+            </div>
+        </div>
+        <button onclick="toggleBase()" style="margin-top: 40px; width: 200px; border-color:#0ff; color:#0ff;">BATTLE</button>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -162,8 +278,23 @@
         canvas.height = window.innerHeight;
 
         let score = 0;
+        let kills = 0;
+        let levelKills = 0;
         let coins = 0;
         let isGameOver = false;
+        let wingmen = [];
+        let purchasedWingmenCount = 0;
+
+        let gems = 0;
+        let level = 1;
+        let gameFrames = 0;
+        let isPaused = false;
+        let gameState = 'battle';
+        let bossActive = false;
+        let boss = null;
+        let bossWarningTimer = 0;
+        
+        let upgrades = { hpBonus: 0, speedBonus: 0, fireRateBonus: 0, coinRateBonus: 0 };
 
         const keys = { w: false, a: false, s: false, d: false, space: false };
         window.addEventListener('keydown', e => {
@@ -191,6 +322,7 @@
         let enemyBullets = [];
         let droppedCoins = [];
         let particles = [];
+        let powerups = [];
 
         // 22 Jets/Ships
         const SHIPS = [
@@ -215,7 +347,8 @@
             { id: 18, name: "B-2 Spirit", color: "#222", speed: 4, fireRate: 25, hp: 400, bulletColor: "#f00", price: 1000, shape: "triangle" },
             { id: 19, name: "Millennium Falcon", color: "#ddd", speed: 7, fireRate: 6, hp: 500, bulletColor: "#f00", price: 1200, shape: "falcon" },
             { id: 20, name: "Naboo Fighter", color: "#ffaa00", speed: 10, fireRate: 8, hp: 120, bulletColor: "#0f0", price: 1500, shape: "jet" },
-            { id: 21, name: "Jedi Starfighter", color: "#a00", speed: 11, fireRate: 5, hp: 180, bulletColor: "#0f0", price: 2000, shape: "triangle" }
+            { id: 21, name: "Jedi Starfighter", color: "#a00", speed: 11, fireRate: 5, hp: 180, bulletColor: "#0f0", price: 2000, shape: "triangle" },
+            { id: 22, name: "Su-57 Felon", color: "#567", speed: 11, fireRate: 8, hp: 200, bulletColor: "#f0f", price: 450, shape: "jet", bulletSpeed: 11 }
         ];
 
         let ownedShips = [0]; // Own X-Wing by default
@@ -225,6 +358,15 @@
         function initShop() {
             const list = document.getElementById('shopList');
             list.innerHTML = '';
+
+            const wingmanItem = document.createElement('div');
+            wingmanItem.className = 'shop-item';
+            wingmanItem.innerHTML = `
+                <h4>+2 Wingmen</h4>
+                <p>Add 2 escorts to fleet</p>
+                <button onclick="buyWingmen()" ${coins < 500 ? 'disabled' : ''}>Buy (500 Cr)</button>
+            `;
+            list.appendChild(wingmanItem);
 
             SHIPS.forEach(ship => {
                 const item = document.createElement('div');
@@ -260,17 +402,32 @@
             }
         };
 
+        window.buyWingmen = function () {
+            if (coins >= 500) {
+                coins -= 500;
+                purchasedWingmenCount += 2;
+                let c = wingmen.length;
+                let offset = (Math.floor(c / 2) + 1) * 60;
+                let hOffset = 20 + Math.floor(c / 2) * 20;
+                wingmen.push({ dx: -offset, dy: hOffset, hp: player.ship.hp });
+                wingmen.push({ dx: offset, dy: hOffset, hp: player.ship.hp });
+                initShop();
+                updateUI();
+            }
+        };
+
         window.equipShip = function (id) {
             const ship = SHIPS.find(s => s.id === id);
             player.ship = ship;
-            player.hp = ship.hp; // Refill HP on equip
+            player.hp = ship.hp + upgrades.hpBonus; // Refill HP on equip
+            wingmen.forEach(wm => wm.hp = ship.hp + upgrades.hpBonus);
             initShop();
             updateUI();
         };
 
         function spawnEnemy() {
-            if (Math.random() < 0.02) {
-                enemies.push({ x: Math.random() * (canvas.width - 40) + 20, y: -50, width: 30, height: 30, speed: Math.random() * 2 + 1, hp: 20 });
+            if (Math.random() < 0.02 * Math.pow(1.75, level - 1)) {
+                enemies.push({ x: Math.random() * (canvas.width - 40) + 20, y: -50, width: 30, height: 30, speed: (Math.random() * 2 + 1) * Math.pow(1.2, level - 1), hp: 50 });
             }
         }
 
@@ -278,9 +435,64 @@
             for (let i = 0; i < 15; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, life: 30, color: color }); }
         }
 
+        window.toggleBase = function () {
+            if (gameState === 'battle') {
+                gameState = 'base';
+                document.getElementById('baseUI').style.display = 'flex';
+                document.getElementById('shop').style.display = 'none';
+                document.getElementById('ui').style.display = 'none';
+                document.getElementById('controls').style.display = 'none';
+            } else {
+                gameState = 'battle';
+                document.getElementById('baseUI').style.display = 'none';
+                document.getElementById('shop').style.display = 'block';
+                document.getElementById('ui').style.display = 'block';
+                document.getElementById('controls').style.display = 'flex';
+            }
+            updateUI();
+        };
+
+        window.buyUpgrade = function (type) {
+            let cost = 0;
+            if (type === 'hp') cost = 30;
+            if (type === 'fireRate') cost = 60;
+            if (type === 'speed') cost = 45;
+            if (type === 'coinRate') cost = 90;
+
+            if (gems >= cost) {
+                gems -= cost;
+                if (type === 'hp') { upgrades.hpBonus += 50; player.hp += 50; wingmen.forEach(wm => wm.hp += 50); }
+                if (type === 'fireRate') upgrades.fireRateBonus += 2;
+                if (type === 'speed') upgrades.speedBonus += 1;
+                if (type === 'coinRate') upgrades.coinRateBonus += 1;
+                updateUI();
+            }
+        };
+
+        window.togglePause = function () {
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').innerText = isPaused ? "RESUME" : "PAUSE";
+        };
+
+        window.restartGame = function () {
+            score = 0; kills = 0; levelKills = 0; coins = 0; gems = 0; level = 1; gameFrames = 0;
+            isPaused = false; gameState = 'battle';
+            bossActive = false; boss = null; bossWarningTimer = 0;
+            upgrades = { hpBonus: 0, speedBonus: 0, fireRateBonus: 0, coinRateBonus: 0 };
+            document.getElementById('bossUI').style.display = 'none';
+            document.getElementById('warning').style.display = 'none';
+            document.getElementById('pauseBtn').innerText = "PAUSE";
+            respawn();
+        };
+
         function updateUI() {
             document.getElementById('scoreVal').innerText = score;
+            document.getElementById('killVal').innerText = kills;
             document.getElementById('coinVal').innerText = coins;
+            document.getElementById('gemVal').innerText = gems;
+            document.getElementById('baseGemVal').innerText = gems;
+            document.getElementById('levelVal').innerText = level;
+            document.getElementById('timerVal').innerText = bossActive ? "BOSS BATTLE!" : Math.max(0, 30 - levelKills) + " Kills";
             document.getElementById('hpVal').innerText = Math.max(0, player.hp);
             initShop();
         }
@@ -311,13 +523,30 @@
             ctx.fill();
         }
 
-        function drawTieFighter(x, y) {
-            ctx.fillStyle = "#888"; ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = "#333"; ctx.fillRect(x - 20, y - 15, 5, 30); ctx.fillRect(x + 15, y - 15, 5, 30); ctx.fillRect(x - 15, y - 2, 30, 4);
+        function drawUFO(x, y) {
+            ctx.fillStyle = "#888"; ctx.beginPath(); ctx.ellipse(x, y, 20, 8, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "#0ff"; ctx.beginPath(); ctx.arc(x, y - 4, 10, Math.PI, 0); ctx.fill();
+            ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x - 12, y, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y + 2, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x + 12, y, 2, 0, Math.PI * 2); ctx.fill();
         }
 
         function update() {
             if (isGameOver) return;
+            if (isPaused || gameState === 'base') {
+                requestAnimationFrame(update);
+                return;
+            }
+
+            gameFrames++;
+            if (gameFrames % 60 === 0) updateUI(); // Update timer every second
+
+            if (!bossActive && levelKills >= 30) {
+                bossActive = true;
+                bossWarningTimer = 0;
+                boss = { x: canvas.width / 2, y: -100, hp: 1000 * Math.pow(1.5, level - 1), maxHp: 1000 * Math.pow(1.5, level - 1), speed: 2, dir: 1, type: level % 3 };
+                document.getElementById('bossUI').style.display = 'block';
+            }
 
             ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -328,20 +557,25 @@
                 ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
             });
 
-            if (keys.w && player.y > 20) player.y -= player.ship.speed;
-            if (keys.s && player.y < canvas.height - 30) player.y += player.ship.speed;
-            if (keys.a && player.x > 20) player.x -= player.ship.speed;
-            if (keys.d && player.x < canvas.width - 20) player.x += player.ship.speed;
+            let pSpeed = player.ship.speed + upgrades.speedBonus;
+            if (keys.w && player.y > 20) player.y -= pSpeed;
+            if (keys.s && player.y < canvas.height - 30) player.y += pSpeed;
+            if (keys.a && player.x > 20) player.x -= pSpeed;
+            if (keys.d && player.x < canvas.width - 20) player.x += pSpeed;
 
             if (player.cooldown > 0) player.cooldown--;
             if (keys.space && player.cooldown === 0) {
+                let pBulletSpeed = player.ship.bulletSpeed || (player.ship.fireRate < 10 ? 15 : 12);
                 if (player.ship.fireRate < 10) {
-                    bullets.push({ x: player.x - 10, y: player.y - 20, speed: 15, width: 4, height: 15, color: player.ship.bulletColor });
-                    bullets.push({ x: player.x + 10, y: player.y - 20, speed: 15, width: 4, height: 15, color: player.ship.bulletColor });
+                    bullets.push({ x: player.x - 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
+                    bullets.push({ x: player.x + 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
                 } else {
-                    bullets.push({ x: player.x, y: player.y - 25, speed: 12, width: 3, height: 15, color: player.ship.bulletColor });
+                    bullets.push({ x: player.x, y: player.y - 25, speed: pBulletSpeed, width: 3, height: 15, color: player.ship.bulletColor });
                 }
-                player.cooldown = player.ship.fireRate;
+                wingmen.forEach(wm => {
+                    bullets.push({ x: player.x + wm.dx, y: player.y + wm.dy - 20, speed: pBulletSpeed, width: 3, height: 15, color: player.ship.bulletColor });
+                });
+                player.cooldown = Math.max(2, player.ship.fireRate - upgrades.fireRateBonus);
             }
 
             for (let i = bullets.length - 1; i >= 0; i--) {
@@ -352,22 +586,42 @@
                 if (b.y < -20) bullets.splice(i, 1);
             }
 
-            spawnEnemy();
+            if (!bossActive || bossWarningTimer > 0) {
+                spawnEnemy();
+            }
+            if (bossWarningTimer > 0) bossWarningTimer--;
 
             for (let i = enemies.length - 1; i >= 0; i--) {
                 let e = enemies[i];
                 e.y += e.speed;
-                drawTieFighter(e.x, e.y);
+                drawUFO(e.x, e.y);
 
-                if (Math.random() < 0.01) enemyBullets.push({ x: e.x, y: e.y + 15, speed: 5, width: 3, height: 15, color: "#0f0" });
+                if (Math.random() < 0.01 * Math.pow(1.75, level - 1)) {
+                    enemyBullets.push({ x: e.x - 10, y: e.y + 10, speed: 11, width: 4, height: 15, color: "#f0f" });
+                    enemyBullets.push({ x: e.x + 10, y: e.y + 10, speed: 11, width: 4, height: 15, color: "#f0f" });
+                }
 
                 for (let j = bullets.length - 1; j >= 0; j--) {
                     let b = bullets[j];
                     if (b.x > e.x - 20 && b.x < e.x + 20 && b.y > e.y - 15 && b.y < e.y + 15) {
                         e.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#f80");
                         if (e.hp <= 0) {
-                            score += 100; createExplosion(e.x, e.y, "#f00");
-                            if (Math.random() < 0.5) droppedCoins.push({ x: e.x, y: e.y, speed: 2 });
+                            score += 100;
+                            kills++;
+                            levelKills++;
+                            if (levelKills === 100) {
+                                gems += 50;
+                            }
+                            createExplosion(e.x, e.y, "#f00");
+                            let r = Math.random();
+                            let coinDropChance = Math.max(0.1, 0.5 - (level - 1) * 0.1);
+                            if (r < 0.01) {
+                                powerups.push({ x: e.x, y: e.y, speed: 2, type: 'x2' });
+                            } else if (r < 0.02) {
+                                powerups.push({ x: e.x, y: e.y, speed: 2, type: '+100' });
+                            } else if (r < 0.02 + coinDropChance) {
+                                droppedCoins.push({ x: e.x, y: e.y, speed: 2 });
+                            }
                             enemies.splice(i, 1);
                             updateUI();
                         }
@@ -377,17 +631,80 @@
                 if (e.y > canvas.height + 20) enemies.splice(i, 1);
             }
 
+            if (boss) {
+                if (boss.y < 100) boss.y += 1;
+                boss.x += boss.speed * boss.dir;
+                if (boss.x < 60 || boss.x > canvas.width - 60) boss.dir *= -1;
+
+                ctx.fillStyle = boss.type === 0 ? "#f00" : (boss.type === 1 ? "#0f0" : "#00f");
+                ctx.beginPath();
+                ctx.moveTo(boss.x, boss.y - 30); ctx.lineTo(boss.x + 60, boss.y); ctx.lineTo(boss.x, boss.y + 30); ctx.lineTo(boss.x - 60, boss.y); ctx.fill();
+
+                document.getElementById('bossFill').style.width = (boss.hp / boss.maxHp * 100) + '%';
+
+                if (Math.random() < 0.05 * Math.pow(1.75, level - 1)) {
+                    enemyBullets.push({ x: boss.x - 20, y: boss.y + 20, speed: 20, width: 6, height: 15, color: "#fa0" });
+                    enemyBullets.push({ x: boss.x + 20, y: boss.y + 20, speed: 20, width: 6, height: 15, color: "#fa0" });
+                }
+
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    let b = bullets[j];
+                    if (b.x > boss.x - 60 && b.x < boss.x + 60 && b.y > boss.y - 30 && b.y < boss.y + 30) {
+                        boss.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#ff0");
+                        if (boss.hp <= 0) {
+                            score += 500 * level;
+                            let gemReward = Math.floor(score / 50);
+                            gems += gemReward;
+                            
+                            for(let g=0; g<20; g++) {
+                                powerups.push({ x: boss.x + (Math.random()-0.5)*100, y: boss.y + (Math.random()-0.5)*100, speed: Math.random()*2+1, type: 'gem' });
+                            }
+                            
+                            createExplosion(boss.x, boss.y, "#fff");
+                            createExplosion(boss.x - 30, boss.y, "#fff");
+                            createExplosion(boss.x + 30, boss.y, "#fff");
+                            boss = null;
+                            bossActive = false;
+                            document.getElementById('bossUI').style.display = 'none';
+                            level++;
+                            levelKills = 0;
+                            gameFrames = 0; 
+                            updateUI();
+                        }
+                        break;
+                    }
+                }
+            }
+
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 let eb = enemyBullets[i];
                 eb.y += eb.speed;
 
-                ctx.fillStyle = eb.color; ctx.shadowBlur = 10; ctx.shadowColor = eb.color;
-                ctx.fillRect(eb.x - eb.width / 2, eb.y, eb.width, eb.height); ctx.shadowBlur = 0;
+                if (eb.isPlasma) {
+                    ctx.fillStyle = eb.color; ctx.shadowBlur = 10; ctx.shadowColor = eb.color;
+                    ctx.beginPath(); ctx.arc(eb.x, eb.y, eb.width / 2, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = eb.color; ctx.shadowBlur = 10; ctx.shadowColor = eb.color;
+                    ctx.fillRect(eb.x - eb.width / 2, eb.y, eb.width, eb.height); ctx.shadowBlur = 0;
+                }
 
                 if (eb.x > player.x - player.width / 2 && eb.x < player.x + player.width / 2 && eb.y > player.y - player.height / 2 && eb.y < player.y + player.height / 2) {
                     player.hp -= 10; enemyBullets.splice(i, 1); createExplosion(player.x, player.y, "#f00"); updateUI();
                     if (player.hp <= 0) gameOver();
-                } else if (eb.y > canvas.height + 20) { enemyBullets.splice(i, 1); }
+                } else {
+                    let hitWingman = false;
+                    for (let w = wingmen.length - 1; w >= 0; w--) {
+                        let wm = wingmen[w];
+                        let wx = player.x + wm.dx;
+                        let wy = player.y + wm.dy;
+                        if (eb.x > wx - player.width / 2 && eb.x < wx + player.width / 2 && eb.y > wy - player.height / 2 && eb.y < wy + player.height / 2) {
+                            wm.hp -= 10; hitWingman = true; enemyBullets.splice(i, 1); createExplosion(wx, wy, "#f00");
+                            if (wm.hp <= 0) wingmen.splice(w, 1);
+                            break;
+                        }
+                    }
+                    if (!hitWingman && eb.y > canvas.height + 20) { enemyBullets.splice(i, 1); }
+                }
             }
 
             for (let i = droppedCoins.length - 1; i >= 0; i--) {
@@ -401,6 +718,40 @@
                 } else if (c.y > canvas.height + 20) { droppedCoins.splice(i, 1); }
             }
 
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                let p = powerups[i];
+                p.y += p.speed;
+                if (p.type === 'gem') {
+                    ctx.fillStyle = "#0ff";
+                    ctx.beginPath(); ctx.moveTo(p.x, p.y-5); ctx.lineTo(p.x+5, p.y); ctx.lineTo(p.x, p.y+5); ctx.lineTo(p.x-5, p.y); ctx.fill();
+                } else {
+                    ctx.fillStyle = p.type === 'x2' ? "#0ff" : "#f0f";
+                    ctx.font = "bold 16px 'Courier New'";
+                    ctx.textAlign = "center";
+                    ctx.fillText(p.type, p.x, p.y);
+                }
+
+                if (Math.hypot(player.x - p.x, player.y - p.y) < 40) {
+                    if (p.type === '+100') {
+                        coins += 100;
+                    } else if (p.type === 'x2') {
+                        let currentCount = wingmen.length;
+                        purchasedWingmenCount += currentCount;
+                        for (let w = 0; w < currentCount; w++) {
+                            let c = wingmen.length;
+                            let offset = (Math.floor(c / 2) + 1) * 60;
+                            let sign = (c % 2 === 0) ? -1 : 1;
+                            let hOffset = 20 + Math.floor(c / 2) * 20;
+                            wingmen.push({ dx: offset * sign, dy: hOffset, hp: player.ship.hp });
+                        }
+                    } else if (p.type === 'gem') {
+                        coins += 5; // Extra bonus for catching the visual gems
+                    }
+                    powerups.splice(i, 1);
+                    updateUI();
+                } else if (p.y > canvas.height + 20) { powerups.splice(i, 1); }
+            }
+
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
                 p.x += p.vx; p.y += p.vy; p.life--;
@@ -409,6 +760,11 @@
             }
 
             drawShape(player.x, player.y, player.ship);
+            for (let wm of wingmen) {
+                ctx.globalAlpha = 0.5;
+                drawShape(player.x + wm.dx, player.y + wm.dy, player.ship);
+            }
+            ctx.globalAlpha = 1.0;
             requestAnimationFrame(update);
         }
 
@@ -418,13 +774,21 @@
         }
 
         window.respawn = function () {
-            player.hp = player.ship.hp;
+            player.hp = player.ship.hp + upgrades.hpBonus;
             player.x = canvas.width / 2;
             player.y = canvas.height - 100;
             bullets = [];
             enemies = [];
             enemyBullets = [];
             particles = [];
+            powerups = [];
+            wingmen = [];
+            for (let i = 0; i < purchasedWingmenCount; i++) {
+                let offset = (Math.floor(i / 2) + 1) * 60;
+                let sign = (i % 2 === 0) ? -1 : 1;
+                let hOffset = 20 + Math.floor(i / 2) * 20;
+                wingmen.push({ dx: offset * sign, dy: hOffset, hp: player.ship.hp + upgrades.hpBonus });
+            }
 
             isGameOver = false;
             document.getElementById('respawnScreen').style.display = 'none';
