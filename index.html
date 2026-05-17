@@ -675,7 +675,7 @@
 
             if (player.cooldown > 0) player.cooldown--;
             if (keys.space && player.cooldown === 0) {
-                let pBulletSpeed = player.ship.bulletSpeed || (player.ship.fireRate < 10 ? 15 : 12);
+                let pBulletSpeed = 7;
                 if (player.ship.fireRate < 10) {
                     bullets.push({ x: player.x - 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
                     bullets.push({ x: player.x + 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
@@ -728,15 +728,15 @@
                 
                 if (Math.random() < eType.shootChance * Math.pow(1.6, level - 1)) {
                     if (eType.bullets === 1) {
-                        enemyBullets.push({ x: e.x, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
+                        enemyBullets.push({ x: e.x, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
                     } else if (eType.bullets === 2) {
-                        enemyBullets.push({ x: e.x - 10, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
-                        enemyBullets.push({ x: e.x + 10, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
+                        enemyBullets.push({ x: e.x - 10, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
+                        enemyBullets.push({ x: e.x + 10, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
                     } else {
                         // Spread shot for 3+ bullets
                         for(let b=0; b<eType.bullets; b++) {
                             let spread = (b - (eType.bullets-1)/2) * 10;
-                            enemyBullets.push({ x: e.x + spread, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
+                            enemyBullets.push({ x: e.x + spread, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
                         }
                     }
                 }
@@ -757,10 +757,7 @@
                             }
                             
                             if (Math.random() < 0.25) { // 1 in 4 kills
-                                if (wingmen.length > 0) {
-                                    wingmen.splice(-Math.min(2, wingmen.length));
-                                    updateUI();
-                                }
+                                powerups.push({ x: e.x, y: e.y, speed: 2, type: '-2' });
                             }
                             
                             createExplosion(e.x, e.y, "#f00");
@@ -883,7 +880,7 @@
                     ctx.fillStyle = "#0ff";
                     ctx.beginPath(); ctx.moveTo(p.x, p.y - 5); ctx.lineTo(p.x + 5, p.y); ctx.lineTo(p.x, p.y + 5); ctx.lineTo(p.x - 5, p.y); ctx.fill();
                 } else {
-                    ctx.fillStyle = p.type === 'x2' ? "#0ff" : "#f0f";
+                    ctx.fillStyle = p.type === 'x2' ? "#0ff" : (p.type === '-2' ? "#f00" : "#f0f");
                     ctx.font = "bold 16px 'Courier New'";
                     ctx.textAlign = "center";
                     ctx.fillText(p.type, p.x, p.y);
@@ -892,6 +889,8 @@
                 if (Math.hypot(player.x - p.x, player.y - p.y) < 40) {
                     if (p.type === '+100') {
                         coins += 100;
+                    } else if (p.type === '-2') {
+                        if (wingmen.length > 0) wingmen.splice(-Math.min(2, wingmen.length));
                     } else if (p.type === 'x2') {
                         let currentCount = wingmen.length;
                         purchasedWingmenCount += currentCount;
