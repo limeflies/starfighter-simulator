@@ -275,7 +275,10 @@
         let levelKills = 0;
         let coins = 0;
         let isGameOver = false;
-        let wingmen = [];
+        let wingmen = [
+            { dx: -60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 },
+            { dx: 60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 }
+        ];
         let purchasedWingmenCount = 0;
 
         let gems = 0;
@@ -454,13 +457,13 @@
             const ship = SHIPS.find(s => s.id === id);
             player.ship = ship;
             player.hp = ship.hp + upgrades.hpBonus; // Refill HP on equip
-            wingmen.forEach(wm => wm.hp = ship.hp + upgrades.hpBonus);
+            wingmen.forEach(wm => wm.hp = wm.maxHp || (ship.hp + upgrades.hpBonus));
             initShop();
             updateUI();
         };
 
         function spawnEnemy() {
-            if (Math.random() < 0.02 * Math.pow(1.75, level - 1)) {
+            if (Math.random() < 0.02 * Math.pow(1.35, level - 1)) {
                 let maxEnemyIndex = Math.min(level - 1, ENEMY_TYPES.length - 1);
                 let eType = ENEMY_TYPES[Math.floor(Math.random() * (maxEnemyIndex + 1))];
                 enemies.push({ 
@@ -534,7 +537,7 @@
                     unlockedTechs.push(id);
                     tech.effect();
                     player.hp = player.ship.hp + upgrades.hpBonus;
-                    wingmen.forEach(wm => wm.hp = player.ship.hp + upgrades.hpBonus);
+                    wingmen.forEach(wm => wm.hp = wm.maxHp || (player.ship.hp + upgrades.hpBonus));
                     updateUI();
                     renderTechTree();
                 }
@@ -721,7 +724,7 @@
                 drawEnemy(e);
 
                 let eType = e.eData || ENEMY_TYPES[0];
-                if (Math.random() < eType.shootChance * Math.pow(1.75, level - 1)) {
+                if (Math.random() < eType.shootChance * Math.pow(1.35, level - 1)) {
                     if (eType.bullets === 1) {
                         enemyBullets.push({ x: e.x, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
                     } else if (eType.bullets === 2) {
@@ -780,7 +783,7 @@
 
                 document.getElementById('bossFill').style.width = (boss.hp / boss.maxHp * 100) + '%';
 
-                let bossFireRate = (boss.type === 'mega' ? 0.2 : 0.05) * Math.pow(1.75, level - 1);
+                let bossFireRate = (boss.type === 'mega' ? 0.2 : 0.05) * Math.pow(1.35, level - 1);
                 if (Math.random() < bossFireRate) {
                     if (boss.type === 'mega') {
                         for(let b=0; b<5; b++) {
@@ -928,7 +931,10 @@
             enemyBullets = [];
             particles = [];
             powerups = [];
-            wingmen = [];
+            wingmen = [
+                { dx: -60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 },
+                { dx: 60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 }
+            ];
             for (let i = 0; i < purchasedWingmenCount; i++) {
                 let offset = (Math.floor(i / 2) + 1) * 60;
                 let sign = (i % 2 === 0) ? -1 : 1;
