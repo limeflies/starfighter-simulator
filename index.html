@@ -457,8 +457,8 @@
                 let shipTemplate = SHIPS[Math.floor(Math.random() * (maxEnemyIndex + 1))];
                 let eType = {
                     type: shipTemplate.name,
-                    hp: shipTemplate.hp,
-                    speed: shipTemplate.speed * 0.2, // scale down speed for enemies
+                    hp: Math.floor(Math.random() * 3 + 5) * 10, // 50, 60, or 70 HP (5-7 hits)
+                    speed: shipTemplate.speed, // same speed as hangar says
                     score: shipTemplate.price || 100, // score based on price
                     color: shipTemplate.color,
                     bullets: Math.max(1, Math.floor(20 / shipTemplate.fireRate)), // more bullets for faster ships
@@ -471,8 +471,8 @@
                     y: -50, 
                     width: 30, 
                     height: 30, 
-                    speed: (Math.random() * 2 + 1) * Math.pow(1.2, level - 1) * eType.speed, 
-                    hp: eType.hp * Math.pow(1.2, level - 1),
+                    speed: eType.speed, // exactly as hangar says
+                    hp: eType.hp, // 5 to 7 hits
                     eData: eType
                 });
             }
