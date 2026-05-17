@@ -374,18 +374,7 @@
             { id: 23, name: "SR-72 Darkstar (Legendary)", color: "#111", speed: 15, fireRate: 4, hp: 300, bulletColor: "#fff", price: 999999, shape: "triangle", bulletSpeed: 16 }
         ];
 
-        const ENEMY_TYPES = [
-            { type: "UFO", hp: 50, speed: 1.0, score: 100, color: "#f00", bullets: 1, shootChance: 0.01, shape: "ufo" },
-            { type: "Fighter", hp: 80, speed: 1.2, score: 200, color: "#0f0", bullets: 2, shootChance: 0.02, shape: "jet" },
-            { type: "Bomber", hp: 150, speed: 0.8, score: 300, color: "#fa0", bullets: 3, shootChance: 0.03, shape: "ywing" },
-            { type: "Interceptor", hp: 60, speed: 1.8, score: 400, color: "#00f", bullets: 1, shootChance: 0.04, shape: "triangle" },
-            { type: "Dreadnought", hp: 300, speed: 0.5, score: 600, color: "#808", bullets: 5, shootChance: 0.05, shape: "cross" },
-            { type: "Stealth", hp: 100, speed: 2.0, score: 500, color: "#222", bullets: 2, shootChance: 0.06, shape: "tie" },
-            { type: "Cruiser", hp: 400, speed: 0.7, score: 800, color: "#f0f", bullets: 4, shootChance: 0.05, shape: "falcon" },
-            { type: "Swarm", hp: 30, speed: 2.5, score: 150, color: "#0ff", bullets: 1, shootChance: 0.08, shape: "ufo" },
-            { type: "Elite", hp: 250, speed: 1.5, score: 1000, color: "#fff", bullets: 3, shootChance: 0.09, shape: "xwing" },
-            { type: "Vanguard", hp: 500, speed: 1.0, score: 2000, color: "#f55", bullets: 6, shootChance: 0.1, shape: "jet" }
-        ];
+
 
         let ownedShips = [0]; // Own X-Wing by default
 
@@ -464,8 +453,19 @@
 
         function spawnEnemy() {
             if (Math.random() < 0.02 * Math.pow(1.6, level - 1)) {
-                let maxEnemyIndex = Math.min(level - 1, ENEMY_TYPES.length - 1);
-                let eType = ENEMY_TYPES[Math.floor(Math.random() * (maxEnemyIndex + 1))];
+                let maxEnemyIndex = Math.min(level - 1, SHIPS.length - 1);
+                let shipTemplate = SHIPS[Math.floor(Math.random() * (maxEnemyIndex + 1))];
+                let eType = {
+                    type: shipTemplate.name,
+                    hp: shipTemplate.hp,
+                    speed: shipTemplate.speed * 0.2, // scale down speed for enemies
+                    score: shipTemplate.price || 100, // score based on price
+                    color: shipTemplate.color,
+                    bullets: Math.max(1, Math.floor(20 / shipTemplate.fireRate)), // more bullets for faster ships
+                    shootChance: 0.05,
+                    shape: shipTemplate.shape,
+                    bulletColor: shipTemplate.bulletColor
+                };
                 enemies.push({ 
                     x: Math.random() * (canvas.width - 40) + 20, 
                     y: -50, 
@@ -723,7 +723,9 @@
                 e.y += e.speed;
                 drawEnemy(e);
 
-                let eType = e.eData || ENEMY_TYPES[0];
+                let eType = e.eData;
+                if (!eType) continue; // skip if somehow no data
+                
                 if (Math.random() < eType.shootChance * Math.pow(1.6, level - 1)) {
                     if (eType.bullets === 1) {
                         enemyBullets.push({ x: e.x, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
@@ -751,6 +753,13 @@
                             if (kills % 1000 === 0 && kills > 0) {
                                 if (!ownedShips.includes(23)) {
                                     ownedShips.push(23); // Unlock Legendary Jet
+                                }
+                            }
+                            
+                            if (Math.random() < 0.25) { // 1 in 4 kills
+                                if (wingmen.length > 0) {
+                                    wingmen.splice(-Math.min(2, wingmen.length));
+                                    updateUI();
                                 }
                             }
                             
