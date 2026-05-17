@@ -463,7 +463,7 @@
         };
 
         function spawnEnemy() {
-            if (Math.random() < 0.02 * Math.pow(1.35, level - 1)) {
+            if (Math.random() < 0.02 * Math.pow(1.6, level - 1)) {
                 let maxEnemyIndex = Math.min(level - 1, ENEMY_TYPES.length - 1);
                 let eType = ENEMY_TYPES[Math.floor(Math.random() * (maxEnemyIndex + 1))];
                 enemies.push({ 
@@ -724,7 +724,7 @@
                 drawEnemy(e);
 
                 let eType = e.eData || ENEMY_TYPES[0];
-                if (Math.random() < eType.shootChance * Math.pow(1.35, level - 1)) {
+                if (Math.random() < eType.shootChance * Math.pow(1.6, level - 1)) {
                     if (eType.bullets === 1) {
                         enemyBullets.push({ x: e.x, y: e.y + 10, speed: 11, width: 4, height: 15, color: eType.color });
                     } else if (eType.bullets === 2) {
@@ -783,7 +783,7 @@
 
                 document.getElementById('bossFill').style.width = (boss.hp / boss.maxHp * 100) + '%';
 
-                let bossFireRate = (boss.type === 'mega' ? 0.2 : 0.05) * Math.pow(1.35, level - 1);
+                let bossFireRate = (boss.type === 'mega' ? 0.2 : 0.05) * Math.pow(1.6, level - 1);
                 if (Math.random() < bossFireRate) {
                     if (boss.type === 'mega') {
                         for(let b=0; b<5; b++) {
