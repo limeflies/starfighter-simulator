@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Starfighter Combat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -13,7 +14,27 @@
             color: #ffe81f;
             font-family: 'Courier New', Courier, monospace;
 
-            canvas {
+            #threeCanvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                z-index: 0;
+                background: linear-gradient(to bottom, #1a75d1, #7ec0ee, #cceeff);
+                pointer-events: none;
+                display: block;
+            }
+
+            #gameCanvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                z-index: 1;
+                background: transparent;
+                pointer-events: auto;
                 display: block;
             }
 
@@ -154,6 +175,7 @@
                 overflow-y: auto;
                 padding: 20px;
             }
+
             .tech-node {
                 background: #222;
                 border: 2px solid #555;
@@ -163,12 +185,36 @@
                 border-radius: 8px;
                 position: relative;
             }
-            .tech-node.unlocked { border-color: #0f0; background: #040; }
-            .tech-node.available { border-color: #0ff; cursor: pointer; }
-            .tech-node.available:hover { background: #044; }
-            .tech-node.locked { opacity: 0.5; }
-            .tech-node h4 { margin: 0 0 5px 0; color: #fff; font-size: 14px; }
-            .tech-node p { margin: 0; font-size: 12px; color: #ccc; }
+
+            .tech-node.unlocked {
+                border-color: #0f0;
+                background: #040;
+            }
+
+            .tech-node.available {
+                border-color: #0ff;
+                cursor: pointer;
+            }
+
+            .tech-node.available:hover {
+                background: #044;
+            }
+
+            .tech-node.locked {
+                opacity: 0.5;
+            }
+
+            .tech-node h4 {
+                margin: 0 0 5px 0;
+                color: #fff;
+                font-size: 14px;
+            }
+
+            .tech-node p {
+                margin: 0;
+                font-size: 12px;
+                color: #ccc;
+            }
 
             #controls {
                 position: absolute;
@@ -259,9 +305,11 @@
         <h1 style="color:#0ff; margin-bottom:0;">AIRCRAFT UPGRADE TREE</h1>
         <h2 style="margin-top:5px;">Gems Available: <span id="baseGemVal">0</span></h2>
         <div id="treeContainer"></div>
-        <button onclick="toggleBase()" style="margin-top: 20px; width: 200px; border-color:#0ff; color:#0ff;">BATTLE</button>
+        <button onclick="toggleBase()"
+            style="margin-top: 20px; width: 200px; border-color:#0ff; color:#0ff;">BATTLE</button>
     </div>
 
+    <canvas id="threeCanvas"></canvas>
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -270,14 +318,597 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
+        // --- Three.js 3D WebGL Flight Simulator Engine ---
+        let scene, camera, renderer, cloudsGroup;
+        const meshMap = new Map();
+        let playerGroup = null;
+        let wingmenGroups = [];
+
+        function initThree() {
+            const container = document.getElementById('threeCanvas');
+            scene.background = new THREE.Color(0x87ceeb); // Bright daytime sky
+            scene.fog = new THREE.FogExp2(0x87ceeb, 0.0015); // Matching fog to blend horizon
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 2000);
+            camera.position.set(0, 320, 240); // Shorter lens perspective chase cam
+            camera.lookAt(0, 0, -180);
+
+            renderer = new THREE.WebGLRenderer({ canvas: container, antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            // Realistic Daytime Lighting
+            const ambientLight = new THREE.AmbientLight(0xdff0ff, 0.85); // Soft blue sky reflection
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xfffaed, 1.6); // Warm golden sun
+            sunLight.position.set(300, 600, 100);
+            scene.add(sunLight);
+
+            const pointLight = new THREE.PointLight(0xff7700, 0.8, 250); // Subtle afterburner reflection
+            pointLight.position.set(0, 10, 100);
+            scene.add(pointLight);
+
+            // Procedural Volumetric 3D Clouds
+            cloudsGroup = new THREE.Group();
+            scene.add(cloudsGroup);
+
+            const cloudMat = new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.9,
+                flatShading: true
+            });
+
+            // Generate 35 distinct 3D cloud clusters scattered at various layers
+            for (let i = 0; i < 35; i++) {
+                const cloudCluster = new THREE.Group();
+                
+                // Construct a cluster of intersecting spheres
+                const bubbleCount = 6 + Math.floor(Math.random() * 5);
+                for (let j = 0; j < bubbleCount; j++) {
+                    const radius = 15 + Math.random() * 20;
+                    const sphereGeom = new THREE.SphereGeometry(radius, 7, 7);
+                    const bubble = new THREE.Mesh(sphereGeom, cloudMat);
+                    
+                    // random spherical offsets
+                    bubble.position.set(
+                        (Math.random() - 0.5) * 45,
+                        (Math.random() - 0.5) * 15,
+                        (Math.random() - 0.5) * 45
+                    );
+                    cloudCluster.add(bubble);
+                }
+
+                // Scatter clouds in 3D space
+                // Float some high above the combat plane (Y=50), most below (Y=-30) for a flight over clouds feel
+                const heightY = (Math.random() > 0.6) ? 50 + Math.random() * 30 : -20 - Math.random() * 40;
+                cloudCluster.position.set(
+                    (Math.random() - 0.5) * 1200,
+                    heightY,
+                    (Math.random() - 0.5) * 1200
+                );
+                
+                // subtle random rotation for natural look
+                cloudCluster.rotation.y = Math.random() * Math.PI;
+                cloudsGroup.add(cloudCluster);
+            }
+        }
+
+        const to3D = (x, y) => {
+            let x3d = (x - canvas.width / 2) * 0.55;
+            let z3d = (y - canvas.height / 2) * 0.55;
+            return { x: x3d, y: 10, z: z3d };
+        };
+
+        function create3DJet(shipId, colorHex, isPlayer) {
+            const group = new THREE.Group();
+            const color = new THREE.Color(colorHex || "#888888");
+
+            const hullMat = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.35,
+                metalness: 0.75,
+                flatShading: true
+            });
+
+            const canopyMat = new THREE.MeshStandardMaterial({
+                color: isPlayer ? 0x00ffff : 0xff3300,
+                roughness: 0.1,
+                metalness: 0.9,
+                transparent: true,
+                opacity: 0.65
+            });
+
+            const thrusterMat = new THREE.MeshBasicMaterial({
+                color: shipId === 23 ? 0x00ffff : 0xffaa00,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            const darkMat = new THREE.MeshStandardMaterial({
+                color: 0x1a1a1a,
+                roughness: 0.6,
+                metalness: 0.4
+            });
+
+            let fuseLen = 32;
+            let fuseRadius = 2.5;
+            if (shipId === 17 || shipId === 23) {
+                fuseLen = 42;
+                fuseRadius = 1.8;
+            } else if (shipId === 8) {
+                fuseLen = 28;
+                fuseRadius = 3.2;
+            }
+
+            const fuseGeom = new THREE.CylinderGeometry(0.1, fuseRadius, fuseLen, 8);
+            fuseGeom.rotateX(Math.PI / 2);
+            const fuselage = new THREE.Mesh(fuseGeom, hullMat);
+            group.add(fuselage);
+
+            const canopyGeom = new THREE.SphereGeometry(1.5, 8, 8);
+            canopyGeom.scale(1, 1.2, 3);
+            const canopy = new THREE.Mesh(canopyGeom, canopyMat);
+            canopy.position.set(0, 1.8, -fuseLen * 0.15);
+            group.add(canopy);
+
+            const wingShape = new THREE.Shape();
+            wingShape.moveTo(0, 0);
+
+            switch (shipId) {
+                case 0:
+                    for (let angle of [-0.25, 0.25, Math.PI - 0.25, Math.PI + 0.25]) {
+                        const xwingGeom = new THREE.BoxGeometry(20, 0.4, 6);
+                        const xwing = new THREE.Mesh(xwingGeom, hullMat);
+                        xwing.position.set(Math.cos(angle) * 10, Math.sin(angle) * 5, 2);
+                        xwing.rotation.z = angle * 0.5;
+
+                        const stripeGeom = new THREE.BoxGeometry(2, 0.5, 6.1);
+                        const stripe = new THREE.Mesh(stripeGeom, new THREE.MeshBasicMaterial({ color: 0xcc3333 }));
+                        stripe.position.set(Math.cos(angle) * 8, 0, 0);
+                        xwing.add(stripe);
+
+                        const cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 12, 4);
+                        cannonGeom.rotateX(Math.PI / 2);
+                        const cannon = new THREE.Mesh(cannonGeom, darkMat);
+                        cannon.position.set(Math.cos(angle) * 9, 0, -4);
+                        xwing.add(cannon);
+
+                        group.add(xwing);
+                    }
+                    break;
+
+                case 1:
+                default:
+                    wingShape.lineTo(-24, 6);
+                    wingShape.lineTo(-22, 10);
+                    wingShape.lineTo(0, 4);
+                    break;
+
+                case 2:
+                    wingShape.lineTo(-26, 8);
+                    wingShape.lineTo(-24, 11);
+                    wingShape.lineTo(0, 5);
+
+                    for (let side of [-1, 1]) {
+                        const tailGeom = new THREE.BoxGeometry(0.3, 8, 5);
+                        const tail = new THREE.Mesh(tailGeom, hullMat);
+                        tail.position.set(side * 3, 4, 10);
+                        tail.rotation.z = side * 0.15;
+                        tail.rotation.y = -side * 0.05;
+                        group.add(tail);
+                    }
+                    break;
+
+                case 3:
+                    const wedgeL = new THREE.Mesh(new THREE.BoxGeometry(8, 2, 18), new THREE.MeshStandardMaterial({ color: 0xcc3333, metalness: 0.8 }));
+                    wedgeL.position.set(-6, 0, 2);
+                    group.add(wedgeL);
+                    const wedgeR = wedgeL.clone();
+                    wedgeR.position.x = 6;
+                    group.add(wedgeR);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 7, 5), hullMat);
+                        fin.position.set(side * 8, 3.5, 8);
+                        group.add(fin);
+                    }
+                    break;
+
+                case 4:
+                    const strutL = new THREE.Mesh(new THREE.BoxGeometry(10, 1, 2), darkMat);
+                    strutL.position.set(-6, 0, 2);
+                    group.add(strutL);
+                    const strutR = strutL.clone();
+                    strutR.position.x = 6;
+                    group.add(strutR);
+
+                    for (let side of [-1, 1]) {
+                        const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.2, 34, 8), hullMat);
+                        nacelle.rotation.x = Math.PI / 2;
+                        nacelle.position.set(side * 11, 0, 1);
+
+                        const ring = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 3, 8), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
+                        ring.position.y = -14;
+                        nacelle.add(ring);
+
+                        group.add(nacelle);
+                    }
+                    break;
+
+                case 5:
+                    wingShape.lineTo(-28, 5);
+                    wingShape.lineTo(-25, 12);
+                    wingShape.lineTo(0, 8);
+
+                    for (let side of [-1, 1]) {
+                        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.3, 9, 6), hullMat);
+                        tail.position.set(side * 3.5, 4.5, 10);
+                        group.add(tail);
+                    }
+                    break;
+
+                case 6:
+                    wingShape.lineTo(-28, 0);
+                    wingShape.lineTo(-14, 12);
+                    wingShape.lineTo(0, 9);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8.5, 7), hullMat);
+                        fin.position.set(side * 4.2, 4.2, 9);
+                        fin.rotation.z = side * 0.35;
+                        group.add(fin);
+                    }
+                    break;
+
+                case 7:
+                    wingShape.lineTo(-25, -2);
+                    wingShape.lineTo(-12, 10);
+                    wingShape.lineTo(0, 8);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 7.5, 6), hullMat);
+                        fin.position.set(side * 3.2, 4, 8);
+                        fin.rotation.z = side * 0.35;
+                        group.add(fin);
+                    }
+                    break;
+
+                case 8:
+                    wingShape.lineTo(-32, 0);
+                    wingShape.lineTo(-32, 7);
+                    wingShape.lineTo(0, 7);
+
+                    for (let side of [-1, 1]) {
+                        const engine = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 11, 8), darkMat);
+                        engine.rotation.x = Math.PI / 2;
+                        engine.position.set(side * 4, 3.8, 6);
+                        group.add(engine);
+                    }
+
+                    const stab = new THREE.Mesh(new THREE.BoxGeometry(22, 0.4, 4), hullMat);
+                    stab.position.set(0, 0, 12);
+                    group.add(stab);
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 7, 5), hullMat);
+                        fin.position.set(side * 11, 3, 12);
+                        group.add(fin);
+                    }
+                    break;
+
+                case 9:
+                    wingShape.quadraticCurveTo(-12, -4, -28, 8);
+                    wingShape.lineTo(-24, 13);
+                    wingShape.lineTo(0, 8);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 9, 6), hullMat);
+                        fin.position.set(side * 3.5, 4.5, 10);
+                        group.add(fin);
+                    }
+                    break;
+
+                case 10:
+                    wingShape.lineTo(-25, 4);
+                    wingShape.lineTo(-21, 9);
+                    wingShape.lineTo(0, 6);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 6), hullMat);
+                        fin.position.set(side * 3, 4, 8);
+                        group.add(fin);
+                    }
+                    break;
+
+                case 11:
+                    wingShape.lineTo(-26, 12);
+                    wingShape.lineTo(-24, 15);
+                    wingShape.lineTo(0, 12);
+
+                    const canardL = new THREE.Mesh(new THREE.BoxGeometry(8, 0.2, 3), hullMat);
+                    canardL.position.set(-6, 0.5, -10);
+                    canardL.rotation.y = 0.2;
+                    group.add(canardL);
+                    const canardR = canardL.clone();
+                    canardR.position.x = 6;
+                    canardR.rotation.y = -0.2;
+                    group.add(canardR);
+                    break;
+
+                case 12:
+                    wingShape.lineTo(-25, 10);
+                    wingShape.lineTo(-22, 13);
+                    wingShape.lineTo(0, 10);
+
+                    const rafCanL = new THREE.Mesh(new THREE.BoxGeometry(7, 0.2, 3.5), hullMat);
+                    rafCanL.position.set(-5.5, 0.5, -8);
+                    group.add(rafCanL);
+                    const rafCanR = rafCanL.clone();
+                    rafCanR.position.x = 5.5;
+                    group.add(rafCanR);
+                    break;
+
+                case 13:
+                    wingShape.lineTo(-22, 9);
+                    wingShape.lineTo(-19, 11);
+                    wingShape.lineTo(0, 8);
+
+                    const gripCanL = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 2.5), hullMat);
+                    gripCanL.position.set(-4.5, 0.4, -7);
+                    group.add(gripCanL);
+                    const gripCanR = gripCanL.clone();
+                    gripCanR.position.x = 4.5;
+                    group.add(gripCanR);
+                    break;
+
+                case 14:
+                    const blade = new THREE.Mesh(new THREE.BoxGeometry(1, 32, 6), new THREE.MeshStandardMaterial({ color: 0x3333cc }));
+                    group.add(blade);
+                    const cross = new THREE.Mesh(new THREE.BoxGeometry(28, 0.6, 2), darkMat);
+                    cross.position.set(0, -10, 0);
+                    group.add(cross);
+                    break;
+
+                case 15:
+                    const tiePod = new THREE.Mesh(new THREE.SphereGeometry(4, 16, 16), hullMat);
+                    group.add(tiePod);
+
+                    const barL = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 16, 6), darkMat);
+                    barL.rotation.z = Math.PI / 2;
+                    barL.position.set(-8, 0, 0);
+                    group.add(barL);
+                    const barR = barL.clone();
+                    barR.position.x = 8;
+                    group.add(barR);
+
+                    for (let side of [-1, 1]) {
+                        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.4, 28, 22), darkMat);
+                        panel.position.set(side * 16, 0, 0);
+                        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 29, 2), hullMat);
+                        panel.add(frame);
+                        group.add(panel);
+                    }
+                    break;
+
+                case 16:
+                    const intPod = new THREE.Mesh(new THREE.SphereGeometry(3.8, 16, 16), hullMat);
+                    group.add(intPod);
+
+                    const intBarL = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 14, 6), darkMat);
+                    intBarL.rotation.z = Math.PI / 2;
+                    intBarL.position.set(-7, 0, 0);
+                    group.add(intBarL);
+                    const intBarR = intBarL.clone();
+                    intBarR.position.x = 7;
+                    group.add(intBarR);
+
+                    for (let side of [-1, 1]) {
+                        const panel = new THREE.Group();
+                        panel.position.set(side * 14, 0, 0);
+                        const intShape = new THREE.Shape();
+                        intShape.moveTo(0, 14);
+                        intShape.lineTo(-12, 0);
+                        intShape.lineTo(0, -14);
+                        intShape.lineTo(-4, 0);
+                        const intGeom = new THREE.ExtrudeGeometry(intShape, { depth: 0.5, bevelEnabled: false });
+                        intGeom.rotateY(Math.PI / 2 * side);
+                        const panelMesh = new THREE.Mesh(intGeom, darkMat);
+                        panel.add(panelMesh);
+                        group.add(panel);
+                    }
+                    break;
+
+                case 17:
+                    const chineGeom = new THREE.CylinderGeometry(0.1, 4, 36, 8);
+                    chineGeom.scale(2.5, 0.3, 1);
+                    chineGeom.rotateX(Math.PI / 2);
+                    const chine = new THREE.Mesh(chineGeom, darkMat);
+                    group.add(chine);
+
+                    wingShape.lineTo(-18, 12);
+                    wingShape.lineTo(-14, 16);
+                    wingShape.lineTo(0, 10);
+
+                    for (let side of [-1, 1]) {
+                        const engine = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.2, 25, 8), darkMat);
+                        engine.rotation.x = Math.PI / 2;
+                        engine.position.set(side * 10, 0, 4);
+                        const exRing = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 1, 8), thrusterMat);
+                        exRing.position.y = 12.5;
+                        engine.add(exRing);
+                        group.add(engine);
+                    }
+                    break;
+
+                case 18:
+                    const b2Shape = new THREE.Shape();
+                    b2Shape.moveTo(0, -12);
+                    b2Shape.lineTo(36, 12);
+                    b2Shape.lineTo(18, 12);
+                    b2Shape.lineTo(12, 8);
+                    b2Shape.lineTo(6, 14);
+                    b2Shape.lineTo(0, 8);
+                    b2Shape.lineTo(-6, 14);
+                    b2Shape.lineTo(-12, 8);
+                    b2Shape.lineTo(-18, 12);
+                    b2Shape.lineTo(-36, 12);
+
+                    const b2Geom = new THREE.ExtrudeGeometry(b2Shape, { depth: 1.8, bevelEnabled: true, bevelThickness: 0.2 });
+                    b2Geom.rotateX(Math.PI / 2);
+                    const b2 = new THREE.Mesh(b2Geom, darkMat);
+                    group.add(b2);
+                    break;
+
+                case 19:
+                    const saucer = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 3, 16), hullMat);
+                    saucer.rotation.x = Math.PI / 2;
+                    group.add(saucer);
+                    const mandibleL = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 14), hullMat);
+                    mandibleL.position.set(-5, 0, -14);
+                    group.add(mandibleL);
+                    const mandibleR = mandibleL.clone();
+                    mandibleR.position.x = 5;
+                    group.add(mandibleR);
+
+                    const falconCock = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 8, 8), darkMat);
+                    falconCock.rotation.x = Math.PI / 2;
+                    falconCock.position.set(11, 0, -8);
+                    group.add(falconCock);
+                    break;
+
+                case 20:
+                    const nabooColorMat = new THREE.MeshStandardMaterial({ color: 0xffbb00, roughness: 0.2, metalness: 0.8 });
+                    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.05, metalness: 0.95 });
+
+                    const noseGeom = new THREE.ConeGeometry(2, 14, 8);
+                    noseGeom.rotateX(-Math.PI / 2);
+                    const noseMesh = new THREE.Mesh(noseGeom, chromeMat);
+                    noseMesh.position.set(0, 0, -10);
+                    group.add(noseMesh);
+
+                    const bodyRear = new THREE.Mesh(new THREE.CylinderGeometry(2, 0.1, 18, 8), nabooColorMat);
+                    bodyRear.rotation.x = Math.PI / 2;
+                    bodyRear.position.set(0, 0, 6);
+                    group.add(bodyRear);
+
+                    const nabShape = new THREE.Shape();
+                    nabShape.moveTo(0, 0);
+                    nabShape.quadraticCurveTo(-14, 2, -26, 10);
+                    nabShape.lineTo(-22, 14);
+                    nabShape.quadraticCurveTo(-10, 6, 0, 4);
+
+                    const nabGeom = new THREE.ExtrudeGeometry(nabShape, { depth: 0.6, bevelEnabled: false });
+                    nabGeom.rotateX(Math.PI / 2);
+                    const nabWings = new THREE.Mesh(nabGeom, nabooColorMat);
+                    group.add(nabWings);
+                    break;
+
+                case 21:
+                    const starColMat = new THREE.MeshStandardMaterial({ color: 0x990000, metalness: 0.8 });
+                    const jediShape = new THREE.Shape();
+                    jediShape.moveTo(0, -18);
+                    jediShape.lineTo(14, 10);
+                    jediShape.lineTo(0, 5);
+                    jediShape.lineTo(-14, 10);
+                    const jediGeom = new THREE.ExtrudeGeometry(jediShape, { depth: 1.5, bevelEnabled: false });
+                    jediGeom.rotateX(Math.PI / 2);
+                    const jediBody = new THREE.Mesh(jediGeom, starColMat);
+                    group.add(jediBody);
+                    break;
+
+                case 22:
+                    wingShape.lineTo(-27, 2);
+                    wingShape.lineTo(-12, 15);
+                    wingShape.lineTo(0, 10);
+
+                    const camo = new THREE.Mesh(new THREE.BoxGeometry(8, 0.1, 6), new THREE.MeshStandardMaterial({ color: 0x445544 }));
+                    camo.position.set(-10, 0.4, 4);
+                    group.add(camo);
+
+                    for (let side of [-1, 1]) {
+                        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8.5, 6), hullMat);
+                        fin.position.set(side * 3.8, 4.2, 8.5);
+                        fin.rotation.z = side * 0.35;
+                        group.add(fin);
+                    }
+                    break;
+
+                case 23:
+                    const darkstarMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.15, metalness: 0.9 });
+
+                    const darkShape = new THREE.Shape();
+                    darkShape.moveTo(0, -24);
+                    darkShape.quadraticCurveTo(5, -6, 22, 14);
+                    darkShape.lineTo(14, 16);
+                    darkShape.lineTo(0, 8);
+                    darkShape.lineTo(-14, 16);
+                    darkShape.quadraticCurveTo(-5, -6, 0, -24);
+
+                    const darkGeom = new THREE.ExtrudeGeometry(darkShape, { depth: 1.6, bevelEnabled: true });
+                    darkGeom.rotateX(Math.PI / 2);
+                    const darkMesh = new THREE.Mesh(darkGeom, darkstarMat);
+                    group.add(darkMesh);
+
+                    const glowL = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 1), thrusterMat);
+                    glowL.position.set(-8, 0, 4);
+                    group.add(glowL);
+                    const glowR = glowL.clone();
+                    glowR.position.x = 8;
+                    group.add(glowR);
+                    break;
+            }
+
+            if (shipId !== 0 && shipId !== 3 && shipId !== 4 && shipId !== 8 && shipId !== 14 && shipId !== 15 && shipId !== 16 && shipId !== 18 && shipId !== 19 && shipId !== 20 && shipId !== 21 && shipId !== 23) {
+                const extrudeSettings = { depth: 0.6, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 2 };
+                const wingGeom = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
+                wingGeom.rotateX(Math.PI / 2);
+                const wingsMesh = new THREE.Mesh(wingGeom, hullMat);
+                group.add(wingsMesh);
+            }
+
+            let enginesCount = (shipId === 2 || shipId === 4 || shipId === 5 || shipId === 6 || shipId === 8 || shipId === 9 || shipId === 10 || shipId === 17 || shipId === 22 || shipId === 23) ? 2 : 1;
+            group.userData = { engines: [] };
+
+            for (let i = 0; i < enginesCount; i++) {
+                let offX = 0;
+                if (enginesCount === 2) {
+                    offX = (i === 0 ? -1.2 : 1.2) * (shipId === 8 ? 2.5 : 1.0);
+                }
+                const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 3, 8), darkMat);
+                nozzle.rotation.x = Math.PI / 2;
+                nozzle.position.set(offX, 0, fuseLen * 0.45);
+
+                const flame = new THREE.Mesh(new THREE.ConeGeometry(0.6, 6, 8), thrusterMat);
+                flame.rotation.x = -Math.PI / 2;
+                flame.position.set(0, -3.2, 0);
+                nozzle.add(flame);
+                group.userData.engines.push(flame);
+                group.add(nozzle);
+            }
+
+            group.userData.shipId = shipId;
+            return group;
+        }
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
         let score = 0;
         let kills = 0;
         let levelKills = 0;
         let coins = 0;
         let isGameOver = false;
         let wingmen = [
-            { dx: -60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 },
-            { dx: 60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 }
+            { dx: -60, dy: 20, hp: 100, bulletSpeed: 10 },
+            { dx: 60, dy: 20, hp: 100, bulletSpeed: 10 }
         ];
         let purchasedWingmenCount = 0;
 
@@ -305,7 +936,7 @@
             { id: 'shield1', name: 'Energy Shield I', desc: 'Absorb 1 hit', cost: 150, req: ['hp2'], effect: () => upgrades.shield = 1 },
             { id: 'evasion', name: 'Evasion Matrix', desc: '+2 Speed', cost: 150, req: ['spd2'], effect: () => upgrades.speedBonus += 2 },
             { id: 'missiles1', name: 'Missile Pods', desc: 'Homing Missiles', cost: 250, req: ['fire2'], effect: () => { upgrades.missiles = true; upgrades.missileSpeed = 9; } },
-            { id: 'luck1', name: 'Fortune System', desc: 'More Gems', cost: 300, req: ['coin2'], effect: () => {} },
+            { id: 'luck1', name: 'Fortune System', desc: 'More Gems', cost: 300, req: ['coin2'], effect: () => { } },
             { id: 'hp3', name: 'Titanium Hull', desc: '+200 HP', cost: 250, req: ['hp2'], effect: () => upgrades.hpBonus += 200 },
             { id: 'spd3', name: 'Plasma Thrusters', desc: '+2 Speed', cost: 300, req: ['spd2'], effect: () => upgrades.speedBonus += 2 },
             { id: 'fire3', name: 'Overcharge III', desc: '+4 Fire Rate', cost: 400, req: ['fire2'], effect: () => upgrades.fireRateBonus += 4 },
@@ -446,16 +1077,16 @@
             const ship = SHIPS.find(s => s.id === id);
             player.ship = ship;
             player.hp = ship.hp + upgrades.hpBonus; // Refill HP on equip
-            wingmen.forEach(wm => wm.hp = wm.maxHp || (ship.hp + upgrades.hpBonus));
+            wingmen.forEach(wm => wm.hp = ship.hp + upgrades.hpBonus);
             initShop();
             updateUI();
         };
 
         function spawnEnemy() {
             if (Math.random() < 0.02 * Math.pow(1.6, level - 1)) {
-                let maxEnemyIndex = Math.min(level - 1, SHIPS.length - 1);
-                let shipTemplate = SHIPS[Math.floor(Math.random() * (maxEnemyIndex + 1))];
+                let shipTemplate = SHIPS[Math.floor(Math.random() * SHIPS.length)];
                 let eType = {
+                    id: shipTemplate.id,
                     type: shipTemplate.name,
                     hp: Math.floor(Math.random() * 3 + 5) * 10, // 50, 60, or 70 HP (5-7 hits)
                     speed: shipTemplate.speed, // same speed as hangar says
@@ -466,11 +1097,11 @@
                     shape: shipTemplate.shape,
                     bulletColor: shipTemplate.bulletColor
                 };
-                enemies.push({ 
-                    x: Math.random() * (canvas.width - 40) + 20, 
-                    y: -50, 
-                    width: 30, 
-                    height: 30, 
+                enemies.push({
+                    x: Math.random() * (canvas.width - 40) + 20,
+                    y: -50,
+                    width: 30,
+                    height: 30,
                     speed: eType.speed, // exactly as hangar says
                     hp: eType.hp, // 5 to 7 hits
                     eData: eType
@@ -502,13 +1133,13 @@
 
         function renderTechTree() {
             const container = document.getElementById('treeContainer');
-            if(!container) return;
+            if (!container) return;
             container.innerHTML = '';
             TECH_TREE.forEach(tech => {
                 const node = document.createElement('div');
                 let isUnlocked = unlockedTechs.includes(tech.id);
                 let canUnlock = tech.req.every(req => unlockedTechs.includes(req)) && gems >= tech.cost;
-                
+
                 if (isUnlocked) {
                     node.className = 'tech-node unlocked';
                 } else if (canUnlock) {
@@ -517,7 +1148,7 @@
                 } else {
                     node.className = 'tech-node locked';
                 }
-                
+
                 node.innerHTML = `
                     <h4>${tech.name}</h4>
                     <p>${tech.desc}</p>
@@ -528,7 +1159,7 @@
             });
         }
 
-        window.buyTech = function(id) {
+        window.buyTech = function (id) {
             let tech = TECH_TREE.find(t => t.id === id);
             if (gems >= tech.cost && !unlockedTechs.includes(id)) {
                 let canUnlock = tech.req.every(req => unlockedTechs.includes(req));
@@ -537,7 +1168,7 @@
                     unlockedTechs.push(id);
                     tech.effect();
                     player.hp = player.ship.hp + upgrades.hpBonus;
-                    wingmen.forEach(wm => wm.hp = wm.maxHp || (player.ship.hp + upgrades.hpBonus));
+                    wingmen.forEach(wm => wm.hp = player.ship.hp + upgrades.hpBonus);
                     updateUI();
                     renderTechTree();
                 }
@@ -573,70 +1204,599 @@
             initShop();
         }
 
-        function drawShape(x, y, ship) {
-            ctx.fillStyle = ship.color;
-            ctx.beginPath();
-            if (ship.shape === "xwing") {
-                ctx.moveTo(x, y - 20); ctx.lineTo(x + 5, y + 10); ctx.lineTo(x + 20, y + 15); ctx.lineTo(x + 20, y + 20); ctx.lineTo(x + 5, y + 20);
-                ctx.lineTo(x, y + 25); ctx.lineTo(x - 5, y + 20); ctx.lineTo(x - 20, y + 20); ctx.lineTo(x - 20, y + 15); ctx.lineTo(x - 5, y + 10);
-            } else if (ship.shape === "jet") {
-                ctx.moveTo(x, y - 25); ctx.lineTo(x + 5, y - 5); ctx.lineTo(x + 20, y + 15); ctx.lineTo(x + 5, y + 20); ctx.lineTo(x, y + 25);
-                ctx.lineTo(x - 5, y + 20); ctx.lineTo(x - 20, y + 15); ctx.lineTo(x - 5, y - 5);
-            } else if (ship.shape === "triangle") {
-                ctx.moveTo(x, y - 25); ctx.lineTo(x + 20, y + 20); ctx.lineTo(x, y + 15); ctx.lineTo(x - 20, y + 20);
-            } else if (ship.shape === "ywing") {
-                ctx.fillRect(x - 5, y - 20, 10, 40); ctx.fillRect(x - 25, y - 10, 10, 30); ctx.fillRect(x + 15, y - 10, 10, 30);
-                ctx.fillRect(x - 15, y + 5, 30, 5);
-            } else if (ship.shape === "cross") {
-                ctx.fillRect(x - 2, y - 25, 4, 50); ctx.fillRect(x - 25, y, 50, 4);
-            } else if (ship.shape === "tie") {
-                ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#333";
-                ctx.fillRect(x - 20, y - 15, 5, 30); ctx.fillRect(x + 15, y - 15, 5, 30); ctx.fillRect(x - 15, y - 2, 30, 4); return;
-            } else if (ship.shape === "falcon") {
-                ctx.arc(x, y + 5, 20, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(x - 8, y - 25, 6, 25); ctx.fillRect(x + 2, y - 25, 6, 25);
-                ctx.fillStyle = "#33e"; ctx.fillRect(x + 18, y, 5, 15); return;
-            }
-            ctx.fill();
-        }
+        // Detailed top-down pseudo-3D flight rendering engine
+        function drawDetailedJet(x, y, ship, isPlayer, isEnemy = false) {
+            ctx.save();
+            ctx.translate(x, y);
 
-        function drawUFO(x, y) {
-            ctx.fillStyle = "#888"; ctx.beginPath(); ctx.ellipse(x, y, 20, 8, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = "#0ff"; ctx.beginPath(); ctx.arc(x, y - 4, 10, Math.PI, 0); ctx.fill();
-            ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x - 12, y, 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y + 2, 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x + 12, y, 2, 0, Math.PI * 2); ctx.fill();
+            // If it's an enemy, scale y by -1 to face down
+            if (isEnemy) {
+                ctx.scale(1, -1);
+            }
+
+            let scale = isPlayer ? 1.0 : 0.75;
+            ctx.scale(scale, scale);
+
+            let color = ship.color || "#888";
+            let cockpitColor = isPlayer ? "#0ff" : "#f50";
+
+            // 3D Altitude Drop Shadow
+            ctx.save();
+            ctx.translate(10, 15 * (isEnemy ? -1 : 1));
+            ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+            ctx.beginPath();
+            ctx.moveTo(0, -25);
+            ctx.lineTo(25, 15);
+            ctx.lineTo(5, 20);
+            ctx.lineTo(0, 25);
+            ctx.lineTo(-5, 20);
+            ctx.lineTo(-25, 15);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            // Glowing engine exhaust flame (pulsing)
+            let flameLen = 12 + Math.sin(gameFrames * 0.5) * 4;
+            let exhaustY = 22; // rear of the jet
+            let exhaustGlow = ctx.createRadialGradient(0, exhaustY, 2, 0, exhaustY + flameLen, 8);
+            if (ship.id === 23) {
+                // SR-72 Hypersonic scramjet glow (Bright Cyan/Blue)
+                exhaustGlow.addColorStop(0, "#fff");
+                exhaustGlow.addColorStop(0.3, "#0bf");
+                exhaustGlow.addColorStop(0.7, "#00f");
+                exhaustGlow.addColorStop(1, "rgba(0, 0, 255, 0)");
+            } else {
+                // Regular military amber/orange thruster flame
+                exhaustGlow.addColorStop(0, "#fff");
+                exhaustGlow.addColorStop(0.3, "#ff5");
+                exhaustGlow.addColorStop(0.7, "#f50");
+                exhaustGlow.addColorStop(1, "rgba(255, 80, 0, 0)");
+            }
+            ctx.fillStyle = exhaustGlow;
+            ctx.beginPath();
+            ctx.moveTo(-6, exhaustY);
+            ctx.lineTo(0, exhaustY + flameLen);
+            ctx.lineTo(6, exhaustY);
+            ctx.closePath();
+            ctx.fill();
+
+            // Fuselage metallic 3D gradient
+            let fuseGrad = ctx.createLinearGradient(-10, 0, 10, 0);
+            fuseGrad.addColorStop(0, "rgba(0,0,0,0.4)");
+            fuseGrad.addColorStop(0.3, color);
+            fuseGrad.addColorStop(0.55, "#fff"); // 3D sheen highlight
+            fuseGrad.addColorStop(0.8, color);
+            fuseGrad.addColorStop(1, "rgba(0,0,0,0.5)");
+
+            // Wing metallic 3D gradient
+            let wingGrad = ctx.createLinearGradient(-25, 0, 25, 0);
+            wingGrad.addColorStop(0, "rgba(0,0,0,0.3)");
+            wingGrad.addColorStop(0.4, color);
+            wingGrad.addColorStop(0.6, color);
+            wingGrad.addColorStop(1, "rgba(0,0,0,0.4)");
+
+            // Draw specific ship designs depending on id
+            ctx.fillStyle = wingGrad;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"; // Panel lines
+            ctx.lineWidth = 1;
+
+            switch (ship.id) {
+                case 0: // T-65 X-Wing
+                    ctx.fillStyle = "#ccc";
+                    ctx.beginPath();
+                    // Left upper wing
+                    ctx.moveTo(-5, -5); ctx.lineTo(-30, -20); ctx.lineTo(-32, -15); ctx.lineTo(-5, 5);
+                    // Right upper wing
+                    ctx.moveTo(5, -5); ctx.lineTo(30, -20); ctx.lineTo(32, -15); ctx.lineTo(5, 5);
+                    // Left lower wing
+                    ctx.moveTo(-5, 5); ctx.lineTo(-28, 20); ctx.lineTo(-30, 23); ctx.lineTo(-5, 10);
+                    // Right lower wing
+                    ctx.moveTo(5, 5); ctx.lineTo(28, 20); ctx.lineTo(30, 23); ctx.lineTo(5, 10);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Laser cannons at tips
+                    ctx.fillStyle = "#ff3333";
+                    ctx.fillRect(-32, -25, 2, 8);
+                    ctx.fillRect(30, -25, 2, 8);
+                    ctx.fillRect(-30, 15, 2, 8);
+                    ctx.fillRect(28, 15, 2, 8);
+
+                    // Fuselage
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -25); ctx.lineTo(4, -5); ctx.lineTo(5, 18); ctx.lineTo(-5, 18); ctx.lineTo(-4, -5);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Red stripes
+                    ctx.fillStyle = "#f33";
+                    ctx.fillRect(-4, -10, 8, 3);
+                    ctx.fillRect(-3, 5, 6, 2);
+                    break;
+
+                case 1: // F-16 Falcon
+                    ctx.beginPath();
+                    // Left Wing
+                    ctx.moveTo(-4, -5); ctx.lineTo(-24, 15); ctx.lineTo(-18, 18); ctx.lineTo(-4, 12);
+                    // Right Wing
+                    ctx.moveTo(4, -5); ctx.lineTo(24, 15); ctx.lineTo(18, 18); ctx.lineTo(4, 12);
+                    // Tail elevators
+                    ctx.moveTo(-3, 14); ctx.lineTo(-12, 22); ctx.lineTo(-8, 24); ctx.lineTo(-3, 20);
+                    ctx.moveTo(3, 14); ctx.lineTo(12, 22); ctx.lineTo(8, 24); ctx.lineTo(3, 20);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Fuselage
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -26); ctx.quadraticCurveTo(4, -10, 4, 10); ctx.lineTo(-4, 10); ctx.quadraticCurveTo(-4, -10, 0, -26);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Single Tail Fin
+                    ctx.fillStyle = "rgba(0,0,0,0.3)";
+                    ctx.fillRect(-1, 8, 2, 14);
+                    break;
+
+                case 2: // F-14 Tomcat
+                    ctx.beginPath();
+                    // Swing wings
+                    ctx.moveTo(-4, -8); ctx.lineTo(-26, 12); ctx.lineTo(-24, 16); ctx.lineTo(-4, 6);
+                    ctx.moveTo(4, -8); ctx.lineTo(26, 12); ctx.lineTo(24, 16); ctx.lineTo(4, 6);
+                    // Dual vertical tails
+                    ctx.moveTo(-5, 10); ctx.lineTo(-14, 23); ctx.lineTo(-10, 24); ctx.lineTo(-4, 16);
+                    ctx.moveTo(5, 10); ctx.lineTo(14, 23); ctx.lineTo(10, 24); ctx.lineTo(4, 16);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Main Body
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -28); ctx.lineTo(5, -12); ctx.lineTo(6, 18); ctx.lineTo(-6, 18); ctx.lineTo(-5, -12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+
+                case 3: // A-Wing
+                    ctx.fillStyle = "#c33";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -22); ctx.lineTo(16, 15); ctx.lineTo(12, 20); ctx.lineTo(-12, 20); ctx.lineTo(-16, 15);
+                    ctx.closePath();
+                    ctx.fill();
+                    // White center stripes
+                    ctx.fillStyle = "#fff";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -22); ctx.lineTo(4, 10); ctx.lineTo(-4, 10);
+                    ctx.closePath();
+                    ctx.fill();
+                    // Twin tail fins
+                    ctx.fillStyle = "#777";
+                    ctx.fillRect(-14, 10, 3, 10);
+                    ctx.fillRect(11, 10, 3, 10);
+                    break;
+
+                case 4: // Y-Wing
+                    ctx.strokeStyle = "#888";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(-5, 5); ctx.lineTo(-15, 5);
+                    ctx.moveTo(5, 5); ctx.lineTo(15, 5);
+                    ctx.stroke();
+
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = "#aaa";
+                    ctx.fillRect(-18, -15, 6, 35);
+                    ctx.fillRect(12, -15, 6, 35);
+                    ctx.fillStyle = "#fa0";
+                    ctx.fillRect(-18, -18, 6, 3);
+                    ctx.fillRect(12, -18, 6, 3);
+
+                    // Cockpit fuselage
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -24); ctx.lineTo(4, -10); ctx.lineTo(4, 15); ctx.lineTo(-4, 15); ctx.lineTo(-4, -10);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 5: // F-15 Eagle
+                    ctx.beginPath();
+                    ctx.moveTo(-4, -10); ctx.lineTo(-26, 10); ctx.lineTo(-24, 16); ctx.lineTo(-4, 14);
+                    ctx.moveTo(4, -10); ctx.lineTo(26, 10); ctx.lineTo(24, 16); ctx.lineTo(4, 14);
+                    ctx.moveTo(-4, 14); ctx.lineTo(-15, 23); ctx.lineTo(-11, 25); ctx.lineTo(-4, 20);
+                    ctx.moveTo(4, 14); ctx.lineTo(15, 23); ctx.lineTo(11, 25); ctx.lineTo(4, 20);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -28); ctx.lineTo(6, -10); ctx.lineTo(7, 20); ctx.lineTo(-7, 20); ctx.lineTo(-6, -10);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+
+                case 6: // F-22 Raptor
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -12); ctx.lineTo(-28, 5); ctx.lineTo(-14, 18); ctx.lineTo(-5, 14);
+                    ctx.moveTo(5, -12); ctx.lineTo(28, 5); ctx.lineTo(14, 18); ctx.lineTo(5, 14);
+                    ctx.moveTo(-5, 12); ctx.lineTo(-16, 24); ctx.lineTo(-10, 26); ctx.lineTo(-4, 18);
+                    ctx.moveTo(5, 12); ctx.lineTo(16, 24); ctx.lineTo(10, 26); ctx.lineTo(4, 18);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -28); ctx.lineTo(5, -12); ctx.lineTo(6, 20); ctx.lineTo(-6, 20); ctx.lineTo(-5, -12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+
+                case 7: // F-35 Lightning
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -8); ctx.lineTo(-25, 8); ctx.lineTo(-12, 18); ctx.lineTo(-4, 14);
+                    ctx.moveTo(5, -8); ctx.lineTo(25, 8); ctx.lineTo(12, 18); ctx.lineTo(4, 14);
+                    ctx.moveTo(-4, 12); ctx.lineTo(-14, 23); ctx.lineTo(-9, 25); ctx.lineTo(-3, 18);
+                    ctx.moveTo(3, 12); ctx.lineTo(14, 23); ctx.lineTo(9, 25); ctx.lineTo(3, 18);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -26); ctx.lineTo(5.5, -8); ctx.lineTo(5.5, 19); ctx.lineTo(-5.5, 19); ctx.lineTo(-5.5, -8);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 8: // A-10 Warthog
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -5); ctx.lineTo(-30, -5); ctx.lineTo(-30, 5); ctx.lineTo(-5, 5);
+                    ctx.moveTo(5, -5); ctx.lineTo(30, -5); ctx.lineTo(30, 5); ctx.lineTo(5, 5);
+                    ctx.moveTo(-3, 15); ctx.lineTo(-15, 15); ctx.lineTo(-15, 20); ctx.lineTo(-3, 20);
+                    ctx.moveTo(3, 15); ctx.lineTo(15, 15); ctx.lineTo(15, 20); ctx.lineTo(3, 20);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#444";
+                    ctx.fillRect(-10, 8, 6, 12);
+                    ctx.fillRect(4, 8, 6, 12);
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -28); ctx.lineTo(5, -15); ctx.lineTo(5, 22); ctx.lineTo(-5, 22); ctx.lineTo(-5, -15);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Teeth decal
+                    ctx.fillStyle = "#fff";
+                    ctx.fillRect(-3, -25, 2, 2);
+                    ctx.fillRect(1, -25, 2, 2);
+                    ctx.fillStyle = "#f33";
+                    ctx.fillRect(-2, -23, 4, 1);
+
+                    ctx.fillStyle = "#111";
+                    ctx.fillRect(-1, -32, 2, 5);
+                    break;
+
+                case 9: // Su-27 Flanker
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -10); ctx.lineTo(-26, 12); ctx.lineTo(-18, 16); ctx.lineTo(-5, 12);
+                    ctx.moveTo(5, -10); ctx.lineTo(26, 12); ctx.lineTo(18, 16); ctx.lineTo(5, 12);
+                    ctx.moveTo(-5, 12); ctx.lineTo(-12, 24); ctx.lineTo(-8, 25); ctx.lineTo(-4, 16);
+                    ctx.moveTo(5, 12); ctx.lineTo(12, 24); ctx.lineTo(8, 25); ctx.lineTo(4, 16);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -30);
+                    ctx.quadraticCurveTo(5, -15, 6, 20); ctx.lineTo(-6, 20);
+                    ctx.quadraticCurveTo(-5, -15, 0, -30);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 10: // MiG-29 Fulcrum
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -8); ctx.lineTo(-24, 10); ctx.lineTo(-17, 14); ctx.lineTo(-4, 10);
+                    ctx.moveTo(5, -8); ctx.lineTo(24, 10); ctx.lineTo(17, 14); ctx.lineTo(4, 10);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -27); ctx.lineTo(5, -10); ctx.lineTo(6, 19); ctx.lineTo(-6, 19); ctx.lineTo(-5, -10);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 11: // Eurofighter
+                    ctx.beginPath();
+                    ctx.moveTo(-3, -2); ctx.lineTo(-26, 16); ctx.lineTo(-22, 20); ctx.lineTo(-3, 16);
+                    ctx.moveTo(3, -2); ctx.lineTo(26, 16); ctx.lineTo(22, 20); ctx.lineTo(3, 16);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.moveTo(-2, -18); ctx.lineTo(-10, -18); ctx.lineTo(-8, -15); ctx.moveTo(2, -18); ctx.lineTo(10, -18); ctx.lineTo(8, -15);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -26); ctx.lineTo(4, -10); ctx.lineTo(4, 21); ctx.lineTo(-4, 21); ctx.lineTo(-4, -10);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 12: // Dassault Rafale
+                    ctx.beginPath();
+                    ctx.moveTo(-4, -4); ctx.lineTo(-25, 14); ctx.lineTo(-20, 18); ctx.lineTo(-4, 14);
+                    ctx.moveTo(4, -4); ctx.lineTo(25, 14); ctx.lineTo(20, 18); ctx.lineTo(4, 14);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(-3, -12); ctx.lineTo(-9, -10); ctx.lineTo(-6, -8);
+                    ctx.moveTo(3, -12); ctx.lineTo(9, -10); ctx.lineTo(6, -8);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -25); ctx.lineTo(4.5, -8); ctx.lineTo(4.5, 20); ctx.lineTo(-4.5, 20); ctx.lineTo(-4.5, -8);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 13: // Saab Gripen
+                    ctx.beginPath();
+                    ctx.moveTo(-3, -4); ctx.lineTo(-22, 13); ctx.lineTo(-18, 16); ctx.lineTo(-3, 12);
+                    ctx.moveTo(3, -4); ctx.lineTo(22, 13); ctx.lineTo(18, 16); ctx.lineTo(3, 12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(-2, -14); ctx.lineTo(-8, -12); ctx.lineTo(-6, -10);
+                    ctx.moveTo(2, -14); ctx.lineTo(8, -12); ctx.lineTo(6, -10);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -24); ctx.lineTo(3.5, -6); ctx.lineTo(3.5, 18); ctx.lineTo(-3.5, 18); ctx.lineTo(-3.5, -6);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 14: // B-Wing
+                    ctx.fillStyle = "#33c";
+                    ctx.fillRect(-4, -20, 8, 40);
+                    ctx.fillStyle = "#22a";
+                    ctx.fillRect(-22, 5, 44, 4);
+                    ctx.fillStyle = cockpitColor;
+                    ctx.beginPath();
+                    ctx.arc(0, -20, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+
+                case 15: // TIE Fighter
+                    ctx.fillStyle = "#222";
+                    ctx.fillRect(-18, -2, 36, 4);
+                    ctx.fillStyle = "#333";
+                    ctx.fillRect(-22, -18, 4, 36);
+                    ctx.fillRect(18, -18, 4, 36);
+                    let podGlow = ctx.createRadialGradient(0, 0, 1, 0, 0, 10);
+                    podGlow.addColorStop(0, "#555");
+                    podGlow.addColorStop(0.8, "#111");
+                    ctx.fillStyle = podGlow;
+                    ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = cockpitColor;
+                    ctx.beginPath(); ctx.arc(0, -4, 3, 0, Math.PI * 2); ctx.fill();
+                    break;
+
+                case 16: // TIE Interceptor
+                    ctx.fillStyle = "#222";
+                    ctx.fillRect(-18, -2, 36, 4);
+                    ctx.fillStyle = "#333";
+                    ctx.beginPath();
+                    ctx.moveTo(-22, -18); ctx.lineTo(-12, 0); ctx.lineTo(-22, 18); ctx.lineTo(-18, 0);
+                    ctx.moveTo(22, -18); ctx.lineTo(12, 0); ctx.lineTo(22, 18); ctx.lineTo(18, 0);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = "#111";
+                    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = cockpitColor;
+                    ctx.beginPath(); ctx.arc(0, -3, 2, 0, Math.PI * 2); ctx.fill();
+                    break;
+
+                case 17: // SR-71 Blackbird
+                    ctx.fillStyle = "#111";
+                    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -32);
+                    ctx.quadraticCurveTo(8, -10, 22, 12);
+                    ctx.lineTo(14, 15);
+                    ctx.lineTo(0, 8);
+                    ctx.lineTo(-14, 15);
+                    ctx.lineTo(-22, 12);
+                    ctx.quadraticCurveTo(-8, -10, 0, -32);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#222";
+                    ctx.fillRect(-15, -6, 5, 22);
+                    ctx.fillRect(10, -6, 5, 22);
+                    ctx.fillStyle = "#f50";
+                    ctx.fillRect(-15, 16, 5, 2);
+                    ctx.fillRect(10, 16, 5, 2);
+                    break;
+
+                case 18: // B-2 Spirit
+                    ctx.fillStyle = "#222";
+                    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -18);
+                    ctx.lineTo(36, 12);
+                    ctx.lineTo(20, 12);
+                    ctx.lineTo(14, 8);
+                    ctx.lineTo(7, 14);
+                    ctx.lineTo(0, 8);
+                    ctx.lineTo(-7, 14);
+                    ctx.lineTo(-14, 8);
+                    ctx.lineTo(-20, 12);
+                    ctx.lineTo(-36, 12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+
+                case 19: // Millennium Falcon
+                    ctx.fillStyle = "#ddd";
+                    ctx.strokeStyle = "rgba(0,0,0,0.15)";
+                    ctx.beginPath();
+                    ctx.arc(0, 4, 16, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillRect(-8, -18, 5, 16);
+                    ctx.fillRect(3, -18, 5, 16);
+                    ctx.fillStyle = "#bbb";
+                    ctx.fillRect(12, -10, 6, 14);
+                    ctx.fillStyle = cockpitColor;
+                    ctx.fillRect(14, -8, 3, 5);
+                    break;
+
+                case 20: // Naboo Fighter
+                    ctx.fillStyle = "#ffaa00";
+                    ctx.beginPath();
+                    ctx.moveTo(-4, -5); ctx.lineTo(-28, 8); ctx.lineTo(-26, 12); ctx.lineTo(-4, 5);
+                    ctx.moveTo(4, -5); ctx.lineTo(28, 8); ctx.lineTo(26, 12); ctx.lineTo(4, 5);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.strokeStyle = "#ffaa00";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(0, 28); ctx.stroke();
+                    ctx.lineWidth = 1;
+
+                    let chromeGrad = ctx.createLinearGradient(-4, 0, 4, 0);
+                    chromeGrad.addColorStop(0, "#999");
+                    chromeGrad.addColorStop(0.5, "#fff");
+                    chromeGrad.addColorStop(1, "#666");
+                    ctx.fillStyle = chromeGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -26); ctx.lineTo(4, -5); ctx.lineTo(-4, -5);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 21: // Jedi Starfighter
+                    ctx.fillStyle = "#a00";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -24); ctx.lineTo(16, 14); ctx.lineTo(0, 6); ctx.lineTo(-16, 14);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = "#fff";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -24); ctx.lineTo(6, 12); ctx.lineTo(0, 5); ctx.lineTo(-6, 12);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 22: // Su-57 Felon
+                    ctx.fillStyle = "#567";
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -12); ctx.lineTo(-27, 2); ctx.lineTo(-12, 16); ctx.lineTo(-5, 12);
+                    ctx.moveTo(5, -12); ctx.lineTo(27, 2); ctx.lineTo(12, 16); ctx.lineTo(5, 12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#455";
+                    ctx.fillRect(-18, -2, 6, 4);
+                    ctx.fillRect(8, 4, 5, 5);
+
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -29); ctx.lineTo(5, -10); ctx.lineTo(6, 20); ctx.lineTo(-6, 20); ctx.lineTo(-5, -10);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+
+                case 23: // SR-72 Darkstar
+                    ctx.fillStyle = "#111";
+                    ctx.strokeStyle = "#0cf";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -32);
+                    ctx.quadraticCurveTo(6, -12, 24, 15);
+                    ctx.lineTo(15, 18);
+                    ctx.lineTo(0, 10);
+                    ctx.lineTo(-15, 18);
+                    ctx.quadraticCurveTo(-6, -12, 0, -32);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#0cf";
+                    ctx.fillRect(-12, -4, 4, 1);
+                    ctx.fillRect(8, -4, 4, 1);
+                    break;
+            }
+
+            // Glass Cockpit (except custom designs with custom cockpits)
+            if (ship.id !== 14 && ship.id !== 15 && ship.id !== 16 && ship.id !== 19) {
+                let copY = -8;
+                let copH = 10;
+                let copW = 4;
+                if (ship.id === 17 || ship.id === 23) {
+                    copY = -15;
+                    copH = 14;
+                }
+
+                let glassGrad = ctx.createLinearGradient(-copW, copY, copW, copY + copH);
+                if (isPlayer) {
+                    glassGrad.addColorStop(0, "#00f");
+                    glassGrad.addColorStop(0.3, "#0ff");
+                    glassGrad.addColorStop(0.7, "#058");
+                    glassGrad.addColorStop(1, "#002");
+                } else {
+                    glassGrad.addColorStop(0, "#f30");
+                    glassGrad.addColorStop(0.3, "#ff5");
+                    glassGrad.addColorStop(0.7, "#f50");
+                    glassGrad.addColorStop(1, "#500");
+                }
+                ctx.fillStyle = glassGrad;
+                ctx.beginPath();
+                ctx.ellipse(0, copY + copH / 2, copW, copH / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
         }
 
         function drawEnemy(e) {
-            if (!e.eData || e.eData.shape === 'ufo') { drawUFO(e.x, e.y); return; }
-            ctx.save();
-            ctx.translate(e.x, e.y);
-            ctx.scale(1, -1); // Flip upside down so it faces the player
-            drawShape(0, 0, {color: e.eData.color, shape: e.eData.shape});
-            ctx.restore();
+            // Rendered in Three.js WebGL
         }
 
         function drawContraBoss(ctx, boss) {
-            ctx.save();
-            ctx.translate(boss.x, boss.y);
-            let hpRatio = boss.hp / boss.maxHp;
-            
-            if (boss.type === 'mega') {
-                ctx.fillStyle = "#333"; ctx.fillRect(-150, -50, 300, 100);
-                ctx.fillStyle = "#555"; ctx.fillRect(-180, -20, 30, 80); ctx.fillRect(150, -20, 30, 80);
-                ctx.fillStyle = hpRatio < 0.3 ? "#f00" : "#fa0"; ctx.beginPath(); ctx.arc(0, 0, 30 + Math.sin(Date.now() / 100) * 5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = "#222"; ctx.fillRect(-100, 10, 40, 20); ctx.fillRect(60, 10, 40, 20);
-                ctx.fillStyle = "#666"; ctx.fillRect(-120, 30, 20, 40); ctx.fillRect(100, 30, 20, 40); ctx.fillRect(-20, 50, 40, 30);
-            } else {
-                let baseColor = boss.type === 0 ? "#800" : (boss.type === 1 ? "#080" : "#008");
-                let coreColor = boss.type === 0 ? "#f00" : (boss.type === 1 ? "#0f0" : "#00f");
-                ctx.fillStyle = baseColor; ctx.beginPath(); ctx.moveTo(0, -60); ctx.lineTo(80, 0); ctx.lineTo(40, 40); ctx.lineTo(-40, 40); ctx.lineTo(-80, 0); ctx.fill();
-                ctx.fillStyle = "#444"; ctx.fillRect(-30, -20, 60, 40);
-                ctx.fillStyle = "#0ff"; ctx.fillRect(-50, -30, 20, 10); ctx.fillRect(30, -30, 20, 10);
-                ctx.fillStyle = "#777"; ctx.fillRect(-60, 10, 15, 30); ctx.fillRect(45, 10, 15, 30);
-                ctx.fillStyle = hpRatio < 0.3 ? "#f00" : coreColor; ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill();
-            }
-            ctx.restore();
+            // Rendered in Three.js WebGL
         }
 
         function update() {
@@ -658,14 +1818,7 @@
                 document.getElementById('bossUI').style.display = 'block';
             }
 
-            ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            ctx.fillStyle = "#fff";
-            stars.forEach(star => {
-                star.y += star.speed;
-                if (star.y > canvas.height) { star.y = 0; star.x = Math.random() * canvas.width; }
-                ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
-            });
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             let pSpeed = player.ship.speed + upgrades.speedBonus;
             if (keys.w && player.y > 20) player.y -= pSpeed;
@@ -685,17 +1838,17 @@
                 wingmen.forEach(wm => {
                     bullets.push({ x: player.x + wm.dx, y: player.y + wm.dy - 20, speed: pBulletSpeed, width: 3, height: 15, color: player.ship.bulletColor });
                 });
-                
+
                 if (upgrades.missiles) {
                     bullets.push({ x: player.x, y: player.y, speed: upgrades.missileSpeed, width: 6, height: 12, color: "#f80", isMissile: true });
                 }
-                
+
                 player.cooldown = Math.max(2, player.ship.fireRate - upgrades.fireRateBonus);
             }
 
             for (let i = bullets.length - 1; i >= 0; i--) {
                 let b = bullets[i];
-                
+
                 if (b.isMissile && enemies.length > 0) {
                     let target = enemies[0];
                     let minDist = Infinity;
@@ -706,7 +1859,7 @@
                     if (target.x < b.x) b.x -= 2;
                     if (target.x > b.x) b.x += 2;
                 }
-                
+
                 b.y -= b.speed;
                 ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
                 ctx.fillRect(b.x - b.width / 2, b.y, b.width, b.height); ctx.shadowBlur = 0;
@@ -725,7 +1878,7 @@
 
                 let eType = e.eData;
                 if (!eType) continue; // skip if somehow no data
-                
+
                 if (Math.random() < eType.shootChance * Math.pow(1.6, level - 1)) {
                     if (eType.bullets === 1) {
                         enemyBullets.push({ x: e.x, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
@@ -734,8 +1887,8 @@
                         enemyBullets.push({ x: e.x + 10, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
                     } else {
                         // Spread shot for 3+ bullets
-                        for(let b=0; b<eType.bullets; b++) {
-                            let spread = (b - (eType.bullets-1)/2) * 10;
+                        for (let b = 0; b < eType.bullets; b++) {
+                            let spread = (b - (eType.bullets - 1) / 2) * 10;
                             enemyBullets.push({ x: e.x + spread, y: e.y + 10, speed: 7, width: 4, height: 15, color: eType.color });
                         }
                     }
@@ -749,17 +1902,17 @@
                             score += eType.score;
                             kills++;
                             levelKills++;
-                            
+
                             if (kills % 1000 === 0 && kills > 0) {
                                 if (!ownedShips.includes(23)) {
                                     ownedShips.push(23); // Unlock Legendary Jet
                                 }
                             }
-                            
+
                             if (Math.random() < 0.25) { // 1 in 4 kills
                                 powerups.push({ x: e.x, y: e.y, speed: 2, type: '-2' });
                             }
-                            
+
                             createExplosion(e.x, e.y, "#f00");
                             if (kills % 200 === 0 && kills > 0) {
                                 if (Math.random() < 0.5) powerups.push({ x: e.x, y: e.y, speed: 2, type: 'x2' });
@@ -779,10 +1932,10 @@
             if (boss) {
                 if (boss.y < 100) boss.y += 1;
                 boss.x += boss.speed * boss.dir;
-                
+
                 let hitBoxW = boss.type === 'mega' ? 150 : 80;
                 let hitBoxH = boss.type === 'mega' ? 100 : 60;
-                
+
                 if (boss.x < hitBoxW || boss.x > canvas.width - hitBoxW) boss.dir *= -1;
 
                 drawContraBoss(ctx, boss);
@@ -792,7 +1945,7 @@
                 let bossFireRate = (boss.type === 'mega' ? 0.2 : 0.05) * Math.pow(1.6, level - 1);
                 if (Math.random() < bossFireRate) {
                     if (boss.type === 'mega') {
-                        for(let b=0; b<5; b++) {
+                        for (let b = 0; b < 5; b++) {
                             let spread = (b - 2) * 30;
                             enemyBullets.push({ x: boss.x + spread, y: boss.y + 60, speed: 15, width: 8, height: 20, color: "#f00" });
                         }
@@ -916,12 +2069,131 @@
                 ctx.globalAlpha = 1.0; if (p.life <= 0) particles.splice(i, 1);
             }
 
-            drawShape(player.x, player.y, player.ship);
-            for (let wm of wingmen) {
-                ctx.globalAlpha = 0.5;
-                drawShape(player.x + wm.dx, player.y + wm.dy, player.ship);
+            // --- Three.js WebGL rendering & 3D Synchronization ---
+            if (renderer) {
+                // Drifting clouds animation
+                if (cloudsGroup) {
+                    cloudsGroup.children.forEach(cloud => {
+                        cloud.position.z += 2.5; // fly over clouds fast
+                        if (cloud.position.z > 500) {
+                            cloud.position.z = -1000; // wrap far ahead
+                            cloud.position.x = (Math.random() - 0.5) * 1200;
+                        }
+                    });
+                }
+
+                // 1. Player jet sync
+                if (!playerGroup) {
+                    playerGroup = create3DJet(player.ship.id, player.ship.color, true);
+                    scene.add(playerGroup);
+                } else if (playerGroup.userData.shipId !== player.ship.id) {
+                    scene.remove(playerGroup);
+                    playerGroup = create3DJet(player.ship.id, player.ship.color, true);
+                    scene.add(playerGroup);
+                }
+
+                let p3D = to3D(player.x, player.y);
+                playerGroup.position.set(p3D.x, p3D.y, p3D.z);
+
+                // Smooth organic flight rotation (pitch & roll)
+                let rollTarget = 0;
+                if (keys.a) rollTarget = 0.6;
+                if (keys.d) rollTarget = -0.6;
+                playerGroup.rotation.z = THREE.MathUtils.lerp(playerGroup.rotation.z, rollTarget, 0.1);
+
+                let pitchTarget = 0;
+                if (keys.w) pitchTarget = -0.15;
+                if (keys.s) pitchTarget = 0.15;
+                playerGroup.rotation.x = THREE.MathUtils.lerp(playerGroup.rotation.x, pitchTarget, 0.1);
+
+                // thruster flicker
+                if (playerGroup.userData.engines) {
+                    playerGroup.userData.engines.forEach(flame => {
+                        let scale = 1 + Math.sin(gameFrames * 0.45) * 0.25;
+                        flame.scale.set(scale, scale * 1.6, scale);
+                    });
+                }
+
+                // 2. Wingmen sync
+                while (wingmenGroups.length < wingmen.length) {
+                    const wmGroup = create3DJet(player.ship.id, player.ship.color, true);
+                    wmGroup.scale.set(0.65, 0.65, 0.65);
+                    scene.add(wmGroup);
+                    wingmenGroups.push(wmGroup);
+                }
+                while (wingmenGroups.length > wingmen.length) {
+                    const wmGroup = wingmenGroups.pop();
+                    scene.remove(wmGroup);
+                }
+
+                wingmen.forEach((wm, idx) => {
+                    const wmGroup = wingmenGroups[idx];
+                    let wm3D = to3D(player.x + wm.dx, player.y + wm.dy);
+                    wmGroup.position.set(wm3D.x, wm3D.y - 1.5, wm3D.z);
+                    wmGroup.rotation.z = playerGroup.rotation.z;
+                    wmGroup.rotation.x = playerGroup.rotation.x;
+
+                    if (wmGroup.userData.engines) {
+                        wmGroup.userData.engines.forEach(flame => {
+                            let scale = 1 + Math.sin((gameFrames + idx) * 0.45) * 0.25;
+                            flame.scale.set(scale, scale * 1.6, scale);
+                        });
+                    }
+                });
+
+                // 3. Enemies sync
+                const activeEnemyKeys = new Set();
+                enemies.forEach((e, idx) => {
+                    if (!e.id3d) e.id3d = "enemy_" + Math.random().toString(36).substr(2, 9);
+                    activeEnemyKeys.add(e.id3d);
+
+                    let mesh = meshMap.get(e.id3d);
+                    if (!mesh) {
+                        mesh = create3DJet(e.eData.id !== undefined ? e.eData.id : 1, e.eData.color, false);
+                        scene.add(mesh);
+                        meshMap.set(e.id3d, mesh);
+                    }
+
+                    let e3D = to3D(e.x, e.y);
+                    mesh.position.set(e3D.x, e3D.y, e3D.z);
+                    mesh.rotation.y = Math.PI;
+                    mesh.rotation.z = Math.sin(gameFrames * 0.05 + idx) * 0.1;
+
+                    if (mesh.userData.engines) {
+                        mesh.userData.engines.forEach(flame => {
+                            let scale = 1 + Math.sin((gameFrames + idx) * 0.5) * 0.2;
+                            flame.scale.set(scale, scale * 1.3, scale);
+                        });
+                    }
+                });
+
+                // 4. Boss sync
+                if (bossActive && boss) {
+                    const bossKey = "boss_main";
+                    activeEnemyKeys.add(bossKey);
+                    let mesh = meshMap.get(bossKey);
+                    if (!mesh) {
+                        mesh = create3DJet(23, "#ff3300", false);
+                        mesh.scale.set(4, 4, 4);
+                        scene.add(mesh);
+                        meshMap.set(bossKey, mesh);
+                    }
+                    let b3D = to3D(boss.x, boss.y);
+                    mesh.position.set(b3D.x, b3D.y + 10, b3D.z);
+                    mesh.rotation.y = Math.PI;
+                    mesh.rotation.z = Math.sin(gameFrames * 0.02) * 0.2;
+                }
+
+                // Cleanup dead meshes
+                for (let [key, mesh] of meshMap.entries()) {
+                    if (!activeEnemyKeys.has(key)) {
+                        scene.remove(mesh);
+                        meshMap.delete(key);
+                    }
+                }
+
+                renderer.render(scene, camera);
             }
-            ctx.globalAlpha = 1.0;
             requestAnimationFrame(update);
         }
 
@@ -940,8 +2212,8 @@
             particles = [];
             powerups = [];
             wingmen = [
-                { dx: -60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 },
-                { dx: 60, dy: 20, hp: 400, maxHp: 400, bulletSpeed: 10 }
+                { dx: -60, dy: 20, hp: 100, bulletSpeed: 10 },
+                { dx: 60, dy: 20, hp: 100, bulletSpeed: 10 }
             ];
             for (let i = 0; i < purchasedWingmenCount; i++) {
                 let offset = (Math.floor(i / 2) + 1) * 60;
@@ -956,8 +2228,7 @@
             update(); // Restart loop
         }
 
-        window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
-
+        initThree();
         initShop();
         update();
 
