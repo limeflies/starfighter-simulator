@@ -342,7 +342,7 @@
         let bullets = [];
         let enemies = [];
         let enemyBullets = [];
-        let droppedCoins = [];
+
         let particles = [];
         let powerups = [];
 
@@ -685,29 +685,53 @@
                     ctx.fillRect(-3, 5, 6, 2);
                     break;
 
-                case 1: // F-16 Falcon
+                case 1: // F-16 Falcon (Ultra Realistic)
                     ctx.beginPath();
                     // Left Wing
-                    ctx.moveTo(-4, -5); ctx.lineTo(-24, 15); ctx.lineTo(-18, 18); ctx.lineTo(-4, 12);
+                    ctx.moveTo(-4, -2); ctx.lineTo(-30, 10); ctx.lineTo(-30, 14); ctx.lineTo(-4, 14);
                     // Right Wing
-                    ctx.moveTo(4, -5); ctx.lineTo(24, 15); ctx.lineTo(18, 18); ctx.lineTo(4, 12);
+                    ctx.moveTo(4, -2); ctx.lineTo(30, 10); ctx.lineTo(30, 14); ctx.lineTo(4, 14);
                     // Tail elevators
-                    ctx.moveTo(-3, 14); ctx.lineTo(-12, 22); ctx.lineTo(-8, 24); ctx.lineTo(-3, 20);
-                    ctx.moveTo(3, 14); ctx.lineTo(12, 22); ctx.lineTo(8, 24); ctx.lineTo(3, 20);
+                    ctx.moveTo(-3, 16); ctx.lineTo(-15, 23); ctx.lineTo(-11, 26); ctx.lineTo(-3, 22);
+                    ctx.moveTo(3, 16); ctx.lineTo(15, 23); ctx.lineTo(11, 26); ctx.lineTo(3, 22);
                     ctx.closePath();
                     ctx.fill();
                     ctx.stroke();
 
-                    // Fuselage
+                    // Massive Drop Tanks under wings
                     ctx.fillStyle = fuseGrad;
                     ctx.beginPath();
-                    ctx.moveTo(0, -26); ctx.quadraticCurveTo(4, -10, 4, 10); ctx.lineTo(-4, 10); ctx.quadraticCurveTo(-4, -10, 0, -26);
+                    ctx.ellipse(-14, 10, 3, 12, 0, 0, Math.PI * 2);
+                    ctx.ellipse(14, 10, 3, 12, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Wingtip Missiles (AIM-9 sidewinders)
+                    ctx.fillStyle = "#eee";
+                    ctx.fillRect(-31, 4, 2, 14);
+                    ctx.fillRect(29, 4, 2, 14);
+                    // Missile tips
+                    ctx.fillStyle = "#333";
+                    ctx.fillRect(-31, 2, 2, 2);
+                    ctx.fillRect(29, 2, 2, 2);
+
+                    // Fuselage (Sleeker F-16 profile)
+                    ctx.fillStyle = fuseGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -32); // Long nose pitot
+                    ctx.quadraticCurveTo(5, -10, 6, 12); 
+                    ctx.lineTo(-6, 12); 
+                    ctx.quadraticCurveTo(-5, -10, 0, -32);
                     ctx.closePath();
                     ctx.fill();
+                    ctx.stroke();
                     
-                    // Single Tail Fin
-                    ctx.fillStyle = "rgba(0,0,0,0.3)";
-                    ctx.fillRect(-1, 8, 2, 14);
+                    // Single High Tail Fin
+                    ctx.fillStyle = "rgba(0,0,0,0.5)";
+                    ctx.beginPath();
+                    ctx.moveTo(0, 8); ctx.lineTo(3, 24); ctx.lineTo(0, 26); ctx.lineTo(-3, 24);
+                    ctx.closePath();
+                    ctx.fill();
                     break;
 
                 case 2: // F-14 Tomcat
@@ -1296,6 +1320,7 @@
                         e.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#f80");
                         if (e.hp <= 0) {
                             score += eType.score;
+                            coins += Math.floor(eType.score / 10);
                             kills++;
                             levelKills++;
                             
@@ -1313,8 +1338,6 @@
                             if (kills % 200 === 0 && kills > 0) {
                                 if (Math.random() < 0.5) powerups.push({ x: e.x, y: e.y, speed: 2, type: 'x2' });
                                 else powerups.push({ x: e.x, y: e.y, speed: 2, type: '+100' });
-                            } else if (Math.random() < Math.max(0.1, 0.5 - (level - 1) * 0.1)) {
-                                droppedCoins.push({ x: e.x, y: e.y, speed: 2 });
                             }
                             enemies.splice(i, 1);
                             updateUI();
@@ -1356,7 +1379,10 @@
                     if (b.x > boss.x - hitBoxW && b.x < boss.x + hitBoxW && b.y > boss.y - hitBoxH && b.y < boss.y + hitBoxH) {
                         boss.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#ff0");
                         if (boss.hp <= 0) {
-                            score += 500 * level;
+                            let bossScore = boss.type === 'mega' ? 2500 : 500;
+                            score += bossScore;
+                            coins += Math.floor(bossScore / 10);
+                            level++;
                             let gemReward = Math.floor(score / 50);
                             gems += gemReward;
 
@@ -1370,7 +1396,6 @@
                             boss = null;
                             bossActive = false;
                             document.getElementById('bossUI').style.display = 'none';
-                            level++;
                             levelKills = 0;
                             gameFrames = 0;
                             updateUI();
@@ -1409,17 +1434,6 @@
                     }
                     if (!hitWingman && eb.y > canvas.height + 20) { enemyBullets.splice(i, 1); }
                 }
-            }
-
-            for (let i = droppedCoins.length - 1; i >= 0; i--) {
-                let c = droppedCoins[i];
-                c.y += c.speed;
-                ctx.fillStyle = "#ffe81f"; ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.fill();
-                ctx.strokeStyle = "#daa520"; ctx.stroke();
-
-                if (Math.hypot(player.x - c.x, player.y - c.y) < 40) {
-                    coins += 10; droppedCoins.splice(i, 1); updateUI();
-                } else if (c.y > canvas.height + 20) { droppedCoins.splice(i, 1); }
             }
 
             for (let i = powerups.length - 1; i >= 0; i--) {
