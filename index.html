@@ -1009,7 +1009,7 @@
 
         let ownedShips = [0]; // Own X-Wing by default
 
-        const player = { x: canvas.width / 2, y: canvas.height - 100, width: 40, height: 50, ship: SHIPS[0], hp: 100, cooldown: 0 };
+        const player = { x: canvas.width / 2, y: canvas.height - 100, width: 40, height: 50, ship: SHIPS[0], hp: 100, cooldown: 0, angle: -Math.PI/2 };
 
         function initShop() {
             const list = document.getElementById('shopList');
@@ -1097,13 +1097,20 @@
                     shape: shipTemplate.shape,
                     bulletColor: shipTemplate.bulletColor
                 };
+                let angle = Math.random() * Math.PI * 2;
+                let dist = 600 + Math.random() * 800; // Far away scattered
+                let ex = player.x + Math.cos(angle) * dist;
+                let ey = player.y + Math.sin(angle) * dist;
+                
                 enemies.push({
-                    x: Math.random() * (canvas.width - 40) + 20,
-                    y: -50,
+                    x: ex,
+                    y: ey,
                     width: 30,
                     height: 30,
-                    speed: eType.speed, // exactly as hangar says
-                    hp: eType.hp, // 5 to 7 hits
+                    speed: eType.speed,
+                    hp: eType.hp,
+                    maxHp: eType.hp,
+                    angle: Math.atan2(player.y - ey, player.x - ex), // face player
                     eData: eType
                 });
             }
@@ -1821,29 +1828,38 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             let pSpeed = player.ship.speed + upgrades.speedBonus;
-            if (keys.w && player.y > 20) player.y -= pSpeed;
-            if (keys.s && player.y < canvas.height - 30) player.y += pSpeed;
-            if (keys.a && player.x > 20) player.x -= pSpeed;
-            if (keys.d && player.x < canvas.width - 20) player.x += pSpeed;
+            let vx = 0, vy = 0;
+            // Inverted altitude controls: Up Arrow (W) goes down (+y), Down Arrow (S) goes up (-y)
+            if (keys.w && player.y < canvas.height - 30) vy += pSpeed;
+            if (keys.s && player.y > 20) vy -= pSpeed;
+            if (keys.a && player.x > 20) vx -= pSpeed;
+            if (keys.d && player.x < canvas.width - 20) vx += pSpeed;
+
+            player.x += vx;
+            player.y += vy;
+
+            if (vx !== 0 || vy !== 0) {
+                let targetAngle = Math.atan2(vy, vx);
+                let diff = targetAngle - player.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                player.angle += diff * 0.15;
+            }
 
             if (player.cooldown > 0) player.cooldown--;
             if (keys.space && player.cooldown === 0) {
-                let pBulletSpeed = 7;
-                if (player.ship.fireRate < 10) {
-                    bullets.push({ x: player.x - 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
-                    bullets.push({ x: player.x + 10, y: player.y - 20, speed: pBulletSpeed, width: 4, height: 15, color: player.ship.bulletColor });
-                } else {
-                    bullets.push({ x: player.x, y: player.y - 25, speed: pBulletSpeed, width: 3, height: 15, color: player.ship.bulletColor });
-                }
+                let pBulletSpeed = 8;
+                let mColor = "#ffaa00";
+                
+                // Fire two missiles from wings
+                bullets.push({ x: player.x + Math.cos(player.angle + Math.PI/2)*15, y: player.y + Math.sin(player.angle + Math.PI/2)*15, speed: pBulletSpeed, width: 4, height: 12, color: mColor, isMissile: true, angle: player.angle });
+                bullets.push({ x: player.x + Math.cos(player.angle - Math.PI/2)*15, y: player.y + Math.sin(player.angle - Math.PI/2)*15, speed: pBulletSpeed, width: 4, height: 12, color: mColor, isMissile: true, angle: player.angle });
+                
                 wingmen.forEach(wm => {
-                    bullets.push({ x: player.x + wm.dx, y: player.y + wm.dy - 20, speed: pBulletSpeed, width: 3, height: 15, color: player.ship.bulletColor });
+                    bullets.push({ x: player.x + wm.dx, y: player.y + wm.dy, speed: pBulletSpeed, width: 4, height: 12, color: mColor, isMissile: true, angle: player.angle });
                 });
 
-                if (upgrades.missiles) {
-                    bullets.push({ x: player.x, y: player.y, speed: upgrades.missileSpeed, width: 6, height: 12, color: "#f80", isMissile: true });
-                }
-
-                player.cooldown = Math.max(2, player.ship.fireRate - upgrades.fireRateBonus);
+                player.cooldown = Math.max(15, player.ship.fireRate * 2 - upgrades.fireRateBonus); // Missiles take longer to reload
             }
 
             for (let i = bullets.length - 1; i >= 0; i--) {
@@ -1856,11 +1872,20 @@
                         let d = Math.hypot(e.x - b.x, e.y - b.y);
                         if (d < minDist) { minDist = d; target = e; }
                     });
-                    if (target.x < b.x) b.x -= 2;
-                    if (target.x > b.x) b.x += 2;
+                    
+                    let targetAngle = Math.atan2(target.y - b.y, target.x - b.x);
+                    let diff = targetAngle - b.angle;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    b.angle += diff * 0.08; // Curve toward target
                 }
 
-                b.y -= b.speed;
+                if (b.angle !== undefined) {
+                    b.x += Math.cos(b.angle) * b.speed;
+                    b.y += Math.sin(b.angle) * b.speed;
+                } else {
+                    b.y -= b.speed; // Fallback for old enemies bullets
+                }
                 ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
                 ctx.fillRect(b.x - b.width / 2, b.y, b.width, b.height); ctx.shadowBlur = 0;
                 if (b.y < -20) bullets.splice(i, 1);
@@ -1873,7 +1898,13 @@
 
             for (let i = enemies.length - 1; i >= 0; i--) {
                 let e = enemies[i];
-                e.y += e.speed;
+                e.x += Math.cos(e.angle) * e.speed;
+                e.y += Math.sin(e.angle) * e.speed;
+                
+                // Return to arena if too far
+                if (Math.hypot(e.x - player.x, e.y - player.y) > 2500) {
+                    e.angle = Math.atan2(player.y - e.y, player.x - e.x);
+                }
                 drawEnemy(e);
 
                 let eType = e.eData;
@@ -1899,7 +1930,7 @@
                     if (b.x > e.x - 20 && b.x < e.x + 20 && b.y > e.y - 15 && b.y < e.y + 15) {
                         e.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#f80");
                         if (e.hp <= 0) {
-                            score += eType.score;
+                            score += e.maxHp;
                             kills++;
                             levelKills++;
 
@@ -1926,7 +1957,8 @@
                         break;
                     }
                 }
-                if (e.y > canvas.height + 20) enemies.splice(i, 1);
+                // Remove offscreen deletion since we are an open arena
+                // if (e.y > canvas.height + 20) enemies.splice(i, 1);
             }
 
             if (boss) {
@@ -1960,8 +1992,8 @@
                     if (b.x > boss.x - hitBoxW && b.x < boss.x + hitBoxW && b.y > boss.y - hitBoxH && b.y < boss.y + hitBoxH) {
                         boss.hp -= 10; bullets.splice(j, 1); createExplosion(b.x, b.y, "#ff0");
                         if (boss.hp <= 0) {
-                            score += 500 * level;
-                            let gemReward = Math.floor(score / 50);
+                            score += boss.maxHp;
+                            let gemReward = Math.floor(score / 10);
                             gems += gemReward;
 
                             for (let g = 0; g < 20; g++) {
@@ -2095,15 +2127,18 @@
                 let p3D = to3D(player.x, player.y);
                 playerGroup.position.set(p3D.x, p3D.y, p3D.z);
 
-                // Smooth organic flight rotation (pitch & roll)
+                // 360 degree flight rotation and smooth pitch/roll
+                playerGroup.rotation.order = 'YXZ';
+                playerGroup.rotation.y = -player.angle - Math.PI/2;
+
                 let rollTarget = 0;
                 if (keys.a) rollTarget = 0.6;
                 if (keys.d) rollTarget = -0.6;
                 playerGroup.rotation.z = THREE.MathUtils.lerp(playerGroup.rotation.z, rollTarget, 0.1);
 
                 let pitchTarget = 0;
-                if (keys.w) pitchTarget = -0.15;
-                if (keys.s) pitchTarget = 0.15;
+                if (keys.w) pitchTarget = 0.25; // visually dive
+                if (keys.s) pitchTarget = -0.25; // visually climb
                 playerGroup.rotation.x = THREE.MathUtils.lerp(playerGroup.rotation.x, pitchTarget, 0.1);
 
                 // thruster flicker
@@ -2130,6 +2165,8 @@
                     const wmGroup = wingmenGroups[idx];
                     let wm3D = to3D(player.x + wm.dx, player.y + wm.dy);
                     wmGroup.position.set(wm3D.x, wm3D.y - 1.5, wm3D.z);
+                    wmGroup.rotation.order = 'YXZ';
+                    wmGroup.rotation.y = playerGroup.rotation.y;
                     wmGroup.rotation.z = playerGroup.rotation.z;
                     wmGroup.rotation.x = playerGroup.rotation.x;
 
@@ -2156,7 +2193,8 @@
 
                     let e3D = to3D(e.x, e.y);
                     mesh.position.set(e3D.x, e3D.y, e3D.z);
-                    mesh.rotation.y = Math.PI;
+                    mesh.rotation.order = 'YXZ';
+                    mesh.rotation.y = -e.angle - Math.PI/2;
                     mesh.rotation.z = Math.sin(gameFrames * 0.05 + idx) * 0.1;
 
                     if (mesh.userData.engines) {
@@ -2194,6 +2232,38 @@
 
                 renderer.render(scene, camera);
             }
+            // HUD Target Arrow
+            if (enemies.length > 0 || boss) {
+                let target = boss ? boss : enemies[0];
+                let minDist = Infinity;
+                if (!boss) {
+                    enemies.forEach(e => {
+                        let d = Math.hypot(e.x - player.x, e.y - player.y);
+                        if (d < minDist) { minDist = d; target = e; }
+                    });
+                }
+                
+                let angle = Math.atan2(target.y - player.y, target.x - player.x);
+                let arrowDist = 120;
+                let hx = player.x + Math.cos(angle) * arrowDist;
+                let hy = player.y + Math.sin(angle) * arrowDist;
+                
+                ctx.save();
+                ctx.translate(hx, hy);
+                ctx.rotate(angle);
+                ctx.fillStyle = boss ? "rgba(255, 50, 50, 0.9)" : "rgba(50, 255, 50, 0.9)";
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.beginPath();
+                ctx.moveTo(20, 0);
+                ctx.lineTo(-15, -12);
+                ctx.lineTo(-8, 0);
+                ctx.lineTo(-15, 12);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+
             requestAnimationFrame(update);
         }
 
